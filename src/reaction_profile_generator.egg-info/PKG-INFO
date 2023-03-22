@@ -1,0 +1,13 @@
+Metadata-Version: 2.1
+Name: reaction-profile-generator
+Version: -version.number-.0.0.1
+Summary: Generate reaction profiles based on a reaction SMILES
+Author: Thijs Stuyver
+License: MIT
+Platform: UNKNOWN
+License-File: LICENSE
+
+# reaction_possibility_enumerator
+This is the repository corresponding to the reaction possibility enumerator -- based on valence orbital permutations/rearrangements -- project
+
+
