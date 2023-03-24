@@ -74,6 +74,7 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     full_reactant_mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
     full_reactant_mol_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_reactant_mol.GetAtoms()}
     full_product_mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_product_mol.GetAtoms()}
+    full_product_mol_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_product_mol.GetAtoms()}
 
     product_conformer = full_product_mol.GetConformer()
 
@@ -87,14 +88,27 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
 
     #autodE
     perform_bonded_repulsion_ff_optimization(full_reactant_mol, full_reactant_mol_dict, atoms_to_fix, 'full_reactant_final') 
-    perform_bonded_repulsion_ff_optimization(full_product_mol, full_product_mol_dict, atoms_to_fix, 'full_product_final') 
+    perform_bonded_repulsion_ff_optimization(full_product_mol, full_product_mol_dict, atoms_to_fix, 'full_product_final')
 
-    command = f"xtb full_reactant_final_opt.xyz --path full_product_final_opt.xyz --input {os.path.join(os.getcwd(), 'path.inp')}"
+    #reorder the product atoms
+    with open('full_product_final_opt.xyz', 'r') as f:
+        lines = f.readlines()
+
+    coord_lines = lines[2:]
+
+    with open('full_product_final_opt_reordered.xyz', 'w') as f:
+        f.write(lines[0])
+        f.write(lines[1])
+        for i in range(len(coord_lines)):
+            f.write(coord_lines[full_reactant_mol_dict[full_product_mol_dict_reverse[i]]])
+
+    command = f"xtb full_reactant_final_opt.xyz --path full_product_final_opt_reordered.xyz --input {os.path.join(os.getcwd(), 'path.inp')} --alpb water"
     subprocess.check_call(
         command.split(),
         stdout=open("xtblog.txt", "w"),
         stderr=open(os.devnull, "w"),
     )
+
 
 def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
     conformer = mol.GetConformer()
@@ -129,10 +143,19 @@ def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
 
     opt_coords, _ = conf_gen._get_coords_energy(coords, bonds, 1, 0.01, bond_distance_matrix, 1e-5, fixed_bonds, fixed_idxs=None)
 
+    # do second optimization, but let the molecules disperse now
+    bond_distance_matrix2 = np.zeros((len(coords), len(coords)))
+
+    for (i,j) in bonds:
+        r0 = (covalent_radii_pm[mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
+        bond_distance_matrix2[i,j] = bond_distance_matrix2[j,i] = float(r0)
+
+    opt_coords2, _ = conf_gen._get_coords_energy(coords, bonds, 1, 0.01, bond_distance_matrix2, 1e-5, fixed_bonds=[], fixed_idxs=None)
+
     conformer = mol.GetConformer()
 
     for i in range(mol.GetNumAtoms()):
-        x,y,z = opt_coords[i]
+        x,y,z = opt_coords2[i]
         conformer.SetAtomPosition(i, Point3D(x,y,z))
 
     write_xyz_file(mol, f'{name}.xyz')
@@ -141,10 +164,11 @@ def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
 
     with open(settings_path, 'w') as f:
         f.write('$constrain \n')
-        f.write(f'  atoms: {",".join(list(map(str, idx_to_fix)))}\n')
+        f.write(f'  atoms: {",".join(list(map(str, range(len(opt_coords2)))))}\n')
+        #f.write(f'  atoms: {",".join(list(map(str, idx_to_fix)))}\n')
         f.write('$end')
 
-    command = f"xtb {name}.xyz --opt --input {settings_path}"
+    command = f"xtb {name}.xyz --opt --input {settings_path} --alpb water"
 
     subprocess.check_call(
         command.split(),
