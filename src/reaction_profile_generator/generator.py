@@ -76,6 +76,9 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     full_product_mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_product_mol.GetAtoms()}
     full_product_mol_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_product_mol.GetAtoms()}
 
+    print(Chem.MolToSmiles(full_reactant_mol), full_reactant_mol_dict)
+    print(Chem.MolToSmiles(full_product_mol), full_product_mol_dict, full_product_mol_dict_reverse)
+
     product_conformer = full_product_mol.GetConformer()
 
     for i in range(full_product_mol.GetNumAtoms()):
@@ -100,9 +103,9 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
         f.write(lines[0])
         f.write(lines[1])
         for i in range(len(coord_lines)):
-            f.write(coord_lines[full_reactant_mol_dict[full_product_mol_dict_reverse[i]]])
+            f.write(coord_lines[full_product_mol_dict[full_reactant_mol_dict_reverse[i]]])
 
-    command = f"xtb full_reactant_final_opt.xyz --path full_product_final_opt_reordered.xyz --input {os.path.join(os.getcwd(), 'path.inp')} --alpb water"
+    command = f"xtb full_reactant_final_opt.xyz --path full_product_final_opt_reordered.xyz --input {os.path.join(os.getcwd(), 'path.inp')}"
     subprocess.check_call(
         command.split(),
         stdout=open("xtblog.txt", "w"),
@@ -150,7 +153,7 @@ def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
         r0 = (covalent_radii_pm[mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
         bond_distance_matrix2[i,j] = bond_distance_matrix2[j,i] = float(r0)
 
-    opt_coords2, _ = conf_gen._get_coords_energy(coords, bonds, 1, 0.01, bond_distance_matrix2, 1e-5, fixed_bonds=[], fixed_idxs=None)
+    opt_coords2, _ = conf_gen._get_coords_energy(opt_coords, bonds, 1, 0.01, bond_distance_matrix2, 1e-5, fixed_bonds=[], fixed_idxs=None)
 
     conformer = mol.GetConformer()
 
@@ -180,9 +183,11 @@ def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
 
 
 def prepare_smiles(smiles):
-    mol = Chem.MolFromSmiles(smiles)
-    mol = Chem.AddHs(mol)
-    [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in mol.GetAtoms()]
+    mol = Chem.MolFromSmiles(smiles, ps)
+    if '[H' not in smiles:
+        mol = Chem.AddHs(mol)
+    if mol.GetAtoms()[0].GetAtomMapNum() != 1:
+        [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in mol.GetAtoms()]
 
     return Chem.MolToSmiles(mol)
 
