@@ -14,104 +14,73 @@ import shutil
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
+workdir = 'test'
 
 def get_distance(coord1, coord2):
-    return np.sqrt((coord1[0] - coord2[0]) ** 2 + (coord1[1] - coord2[1]) ** 2 + (coord1[2] - coord2[2]) ** 2)
+    return np.sqrt((coord1 - coord2) ** 2)
 
 def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
-    # find the biggest fragment
-    # find bonds broken/formed
-    # generate conformer for biggest fragment
-    # look at which fragments on other side overlap
-    # align overlapping atoms with the biggest fragment
-    # align overlapping atoms of remaining fragments to these
+    # get full smiles
+    # determine active bonds
+    # set bond lengths
+    # Randomize-and-relax conformer generation
+    # use same constraints to optimize with xTB
+    # lift restrictions on the broken bonds -> reactants
+    # lift restrictions on the formed bonds -> products
     reactant_smiles = prepare_smiles(reactant_smiles)
     full_reactant_mol = Chem.MolFromSmiles(reactant_smiles, ps)
     full_product_mol = Chem.MolFromSmiles(product_smiles, ps)
 
-    reactant_mols, product_mols = [], []
-    for smi in reactant_smiles.split('.'):
-        reactant_mols.append(Chem.MolFromSmiles(smi, ps))
-    for smi in product_smiles.split('.'):
-        product_mols.append(Chem.MolFromSmiles(smi, ps))
+    formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol)
+
+    full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
+
+    formation_constraints, breaking_constraints = {}, {}
+
+    print(formed_bonds)
+    for bond in formed_bonds:
+       i,j,_ = map(int, bond.split('-'))
+       mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
+       mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
+       formation_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
+        (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.1 / 1000
+
+    for bond in broken_bonds:
+        i,j,_ = map(int, bond.split('-'))
+        mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
+        mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
+        breaking_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
+                                (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.1 / 1000
+
+    mol = get_conformer(full_reactant_mol)
     
-    biggest_reactant_idx = np.argmax([mol.GetNumAtoms() for mol in reactant_mols])
-    biggest_product_idx = np.argmax([mol.GetNumAtoms() for mol in product_mols])
+    coords = np.array(mol.GetConformer().GetPositions())
 
-    all_coord_r = []
-    atoms_to_fix = []
+    write_xyz_file(full_reactant_mol, 'test/input.xyz')
 
-    # get conformer for biggest fragment
-    if product_mols[biggest_product_idx].GetNumAtoms() > reactant_mols[biggest_reactant_idx].GetNumAtoms():
-       starting_mol = get_conformer(product_mols[biggest_product_idx])
-       starting_mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in starting_mol.GetAtoms()}
-       for i, mol in enumerate(reactant_mols):
-            mol_to_align = get_conformer(mol)
-            atom_map = list(set([atom.GetAtomMapNum() for atom in mol_to_align.GetAtoms()]).intersection(
-                set([atom.GetAtomMapNum() for atom in starting_mol.GetAtoms()])))
-            atoms_to_fix += atom_map
-            mol_to_align_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol_to_align.GetAtoms()}
-            id_mapping = [(mol_to_align_dict[i],starting_mol_dict[i]) for i in atom_map]
-            if len(atom_map) != 0:
-                rdMolAlign.AlignMol(mol_to_align, starting_mol, atomMap=id_mapping, maxIters=1000)
-                conformer = mol_to_align.GetConformer()
-                coords = conformer.GetPositions()
-                all_coord_r += list(coords)
-            else:
-                raise KeyError #TODO: continue aligning in a second round until all fragments are connected
+    ade_mol = ade.Molecule('test/input.xyz', charge=-1)
 
-    full_reactant_mol = get_conformer(full_reactant_mol)
-    reactant_conformer = full_reactant_mol.GetConformer()
-    for i in range(full_reactant_mol.GetNumAtoms()):
-        x,y,z = all_coord_r[i]
-        reactant_conformer.SetAtomPosition(i, Point3D(x,y,z))
+    print(ade_mol.graph.edges)
 
-    #AllChem.UFFOptimizeMolecule(full_reactant_mol)
+    constraints = merge_dicts(formation_constraints, breaking_constraints) #TODO: Fix!
 
-    #write_xyz_file(full_reactant_mol, 'reactant_final.xyz')
+    print(formation_constraints)
 
-    full_product_mol = get_conformer(full_product_mol)
-    full_reactant_mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
-    full_reactant_mol_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_reactant_mol.GetAtoms()}
-    full_product_mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_product_mol.GetAtoms()}
-    full_product_mol_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_product_mol.GetAtoms()}
+    bonds = []
+    for bond in full_reactant_mol.GetBonds():
+        i,j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
+        if (i,j) not in formation_constraints and (j,i) not in formation_constraints:
+            #r0 = (covalent_radii_pm[full_reactant_mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[full_reactant_mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
+            bonds.append((i,j))
+    
+    ade_mol.graph.edges = bonds
 
-    print(Chem.MolToSmiles(full_reactant_mol), full_reactant_mol_dict)
-    print(Chem.MolToSmiles(full_product_mol), full_product_mol_dict, full_product_mol_dict_reverse)
+    #TODO: Set constraints and then do the conformer generation -> this should give you the approximate TSs which you can then refine with xTB (taking some of the routines
+    # from iacta)
+    print(ade_mol.graph.edges) 
 
-    product_conformer = full_product_mol.GetConformer()
-
-    for i in range(full_product_mol.GetNumAtoms()):
-        x,y,z = all_coord_r[i]
-        product_conformer.SetAtomPosition(full_product_mol_dict[full_reactant_mol_dict_reverse[i]], Point3D(x,y,z)) 
-
-    AllChem.UFFOptimizeMolecule(full_product_mol)
-
-    #write_xyz_file(full_product_mol, 'product_final.xyz')
-
-    #autodE
-    perform_bonded_repulsion_ff_optimization(full_reactant_mol, full_reactant_mol_dict, atoms_to_fix, 'full_reactant_final') 
-    perform_bonded_repulsion_ff_optimization(full_product_mol, full_product_mol_dict, atoms_to_fix, 'full_product_final')
-
-    #reorder the product atoms
-    with open('full_product_final_opt.xyz', 'r') as f:
-        lines = f.readlines()
-
-    coord_lines = lines[2:]
-
-    with open('full_product_final_opt_reordered.xyz', 'w') as f:
-        f.write(lines[0])
-        f.write(lines[1])
-        for i in range(len(coord_lines)):
-            f.write(coord_lines[full_product_mol_dict[full_reactant_mol_dict_reverse[i]]])
-
-    command = f"xtb full_reactant_final_opt.xyz --path full_product_final_opt_reordered.xyz --input {os.path.join(os.getcwd(), 'path.inp')}"
-    subprocess.check_call(
-        command.split(),
-        stdout=open("xtblog.txt", "w"),
-        stderr=open(os.devnull, "w"),
-    )
-
+def merge_dicts(dict1, dict2):
+    return(dict2.update(dict1))
 
 def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
     conformer = mol.GetConformer()
@@ -192,12 +161,7 @@ def prepare_smiles(smiles):
     return Chem.MolToSmiles(mol)
 
 
-def get_active_bonds(reactant_smiles, product_smiles):
-    reactant_mol = Chem.MolFromSmiles(reactant_smiles)
-    reactant_mol = Chem.AddHs(reactant_mol)
-    [atom.SetAtomMapNum(atom.GetIdx() + 1) for atom in reactant_mol.GetAtoms()]
-    product_mol = Chem.MolFromSmiles(product_smiles, ps)
-
+def get_active_bonds(reactant_mol, product_mol):
     reactant_bonds = get_bonds(reactant_mol)
     product_bonds = get_bonds(product_mol)
 
@@ -223,7 +187,7 @@ def get_bonds(mol):
 
 
 def get_conformer(mol):
-    mol = Chem.AddHs(mol)
+    #mol = Chem.AddHs(mol)
     AllChem.EmbedMolecule(mol, AllChem.ETKDG())
     # Perform UFF optimization
     AllChem.UFFOptimizeMolecule(mol)
