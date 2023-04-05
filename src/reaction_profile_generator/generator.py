@@ -3,11 +3,14 @@ from rdkit.Chem import AllChem
 from rdkit.Geometry import Point3D
 import numpy as np
 import autode as ade
-from rdkit.Chem import rdMolAlign
+#from rdkit.Chem import rdMolAlign
 import os
 import subprocess
 from autode.conformers import conf_gen
 import shutil
+from autode.conformers import conf_gen, Conformer
+from typing import Callable
+from functools import wraps
 
 #xtb = ade.methods.XTB()
 
@@ -16,9 +19,38 @@ ps.removeHs = False
 
 workdir = 'test'
 
+def work_in(dir_ext: str) -> Callable:
+    """Execute a function in a different directory"""
+
+    def func_decorator(func):
+        @wraps(func)
+        def wrapped_function(*args, **kwargs):
+
+            here = os.getcwd()
+            dir_path = os.path.join(here, dir_ext)
+
+            if not os.path.isdir(dir_path):
+                os.mkdir(dir_path)
+
+            os.chdir(dir_path)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                os.chdir(here)
+
+                if len(os.listdir(dir_path)) == 0:
+                    os.rmdir(dir_path)
+
+            return result
+
+        return wrapped_function
+
+    return func_decorator
+
 def get_distance(coord1, coord2):
     return np.sqrt((coord1 - coord2) ** 2)
 
+@work_in(workdir)
 def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     # get full smiles
     # determine active bonds
@@ -27,7 +59,7 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     # use same constraints to optimize with xTB
     # lift restrictions on the broken bonds -> reactants
     # lift restrictions on the formed bonds -> products
-    reactant_smiles = prepare_smiles(reactant_smiles)
+    #reactant_smiles = prepare_smiles(reactant_smiles)
     full_reactant_mol = Chem.MolFromSmiles(reactant_smiles, ps)
     full_product_mol = Chem.MolFromSmiles(product_smiles, ps)
 
@@ -36,51 +68,58 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
 
     formation_constraints, breaking_constraints = {}, {}
-
-    print(formed_bonds)
+    print(reactant_smiles, product_smiles)
+    print(formed_bonds, broken_bonds)
     for bond in formed_bonds:
-       i,j,_ = map(int, bond.split('-'))
+       i,j = map(int, bond.split('-'))
        mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
        mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
        formation_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
-        (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.1 / 1000
+        (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.5 / 100
 
     for bond in broken_bonds:
-        i,j,_ = map(int, bond.split('-'))
+        i,j = map(int, bond.split('-'))
         mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
         mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
         breaking_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
-                                (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.1 / 1000
+                                (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.5 / 100
 
-    mol = get_conformer(full_reactant_mol)
+    get_conformer(full_reactant_mol)
     
-    coords = np.array(mol.GetConformer().GetPositions())
+    #coords = np.array(mol.GetConformer().GetPositions())
 
-    write_xyz_file(full_reactant_mol, 'test/input.xyz')
+    write_xyz_file(full_reactant_mol, 'input.xyz')
 
-    ade_mol = ade.Molecule('test/input.xyz', charge=-1)
+    ade_mol = ade.Molecule('input.xyz', charge=-1)
 
-    print(ade_mol.graph.edges)
+    constraints = formation_constraints.copy()
+    constraints.update(breaking_constraints)
 
-    constraints = merge_dicts(formation_constraints, breaking_constraints) #TODO: Fix!
+    #constraints = dict(formation_constraints, **breaking_constraints)
+    #constraints = merge_dicts(formation_constraints, breaking_constraints) #TODO: Fix!
 
-    print(formation_constraints)
+    print(constraints)
 
     bonds = []
     for bond in full_reactant_mol.GetBonds():
         i,j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
-        if (i,j) not in formation_constraints and (j,i) not in formation_constraints:
+        if (i,j) not in constraints and (j,i) not in constraints:
             #r0 = (covalent_radii_pm[full_reactant_mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[full_reactant_mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
             bonds.append((i,j))
     
     ade_mol.graph.edges = bonds
 
-    #TODO: Set constraints and then do the conformer generation -> this should give you the approximate TSs which you can then refine with xTB (taking some of the routines
-    # from iacta)
+    for n in range(5):
+        atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
+        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=-1)
+
+        conformer.optimise(method=ade.methods.XTB()) #TODO: this is not constrained optimization! Introduce now imposed activation!
+        conformer.print_xyz_file()
+    
     print(ade_mol.graph.edges) 
 
-def merge_dicts(dict1, dict2):
-    return(dict2.update(dict1))
+#def merge_dicts(dict1, dict2):
+#    return(dict2.update(dict1))
 
 def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
     conformer = mol.GetConformer()
@@ -176,12 +215,12 @@ def get_bonds(mol):
     for bond in mol.GetBonds():
         atom_1 = mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetAtomMapNum()
         atom_2 = mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetAtomMapNum()
-        num_bonds = round(bond.GetBondTypeAsDouble())
+        #num_bonds = round(bond.GetBondTypeAsDouble())
 
         if atom_1 < atom_2:
-            bonds.add(f'{atom_1}-{atom_2}-{num_bonds}')
+            bonds.add(f'{atom_1}-{atom_2}') #-{num_bonds}')
         else:
-            bonds.add(f'{atom_2}-{atom_1}-{num_bonds}')
+            bonds.add(f'{atom_2}-{atom_1}') #-{num_bonds}')
 
     return bonds
 
