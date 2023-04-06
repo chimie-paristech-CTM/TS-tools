@@ -11,6 +11,7 @@ import shutil
 from autode.conformers import conf_gen, Conformer
 from typing import Callable
 from functools import wraps
+from autode.geom import calc_heavy_atom_rmsd
 
 #xtb = ade.methods.XTB()
 
@@ -85,109 +86,53 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
                                 (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.5 / 100
 
     get_conformer(full_reactant_mol)
-    
-    #coords = np.array(mol.GetConformer().GetPositions())
 
     write_xyz_file(full_reactant_mol, 'input.xyz')
 
-    ade_mol = ade.Molecule('input.xyz', charge=-1)
+    ade_mol = ade.Molecule('input.xyz', charge=-1) #TODO: stereochemistry???
 
     constraints = formation_constraints.copy()
     constraints.update(breaking_constraints)
-
-    #constraints = dict(formation_constraints, **breaking_constraints)
-    #constraints = merge_dicts(formation_constraints, breaking_constraints) #TODO: Fix!
-
-    print(constraints)
 
     bonds = []
     for bond in full_reactant_mol.GetBonds():
         i,j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
         if (i,j) not in constraints and (j,i) not in constraints:
-            #r0 = (covalent_radii_pm[full_reactant_mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[full_reactant_mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
-            bonds.append((i,j))
+             bonds.append((i,j))
     
     ade_mol.graph.edges = bonds
 
+    conformers = []
     for n in range(5):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
-        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=-1)
+        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=-1, dist_consts=constraints)
 
-        conformer.optimise(method=ade.methods.XTB()) #TODO: this is not constrained optimization! Introduce now imposed activation!
-        conformer.print_xyz_file()
+        conformer.optimise(method=ade.methods.XTB())
+        conformers.append(conformer)
+
+    conformers = prune_conformers(conformers, rmsd_tol = 0.1) # angström
+    print(len(conformers))
+
+    # prune the conformers based on energy and rmsd
+    # subsequently refine the structures and then use them as input for DFT TS search
+    # reaction_job in react_utils.py
+
+
+
+def prune_conformers(conformers, rmsd_tol):
+    conformers = [conformer for conformer in conformers if conformer.energy != None]
+    #idx_list = [idx for idx in enumerate(conformers)]
+    #energies = [conformers[idx].energy for idx in idx_list]
+    #for i, energy in enumerate(reversed(idxs))
+    for idx in reversed(range(len(conformers) - 1)):
+        conf = conformers[idx]
+        print(list(calc_heavy_atom_rmsd(conf.atoms, other.atoms) 
+               for o_idx, other in enumerate(conformers) if o_idx != idx))
+        if any(calc_heavy_atom_rmsd(conf.atoms, other.atoms) < rmsd_tol 
+               for o_idx, other in enumerate(conformers) if o_idx != idx):
+            del conformers[idx]
     
-    print(ade_mol.graph.edges) 
-
-#def merge_dicts(dict1, dict2):
-#    return(dict2.update(dict1))
-
-def perform_bonded_repulsion_ff_optimization(mol, mol_dict, atoms_to_fix, name):
-    conformer = mol.GetConformer()
-    coords = np.array(conformer.GetPositions())
-    bonds = [(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()) 
-                       for bond in mol.GetBonds()]
-
-    idx_to_fix = [mol_dict[i] for i in atoms_to_fix]
-
-    # if already bond, then do not fix
-    distance_constraints = []
-    fixed_bonds = []
-    for idx1 in idx_to_fix:
-        for idx2 in idx_to_fix:
-            if idx1 == idx2:
-                continue
-            else:
-                fixed_bonds.append((idx1, idx2))
-                distance_constraints.append(1.2 * get_distance(coords[idx1], coords[idx2]))
-
-    bond_distance_matrix = np.zeros((len(coords), len(coords)))
-
-    for (i,j) in bonds:
-        r0 = (covalent_radii_pm[mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
-        bond_distance_matrix[i,j] = bond_distance_matrix[j,i] = float(r0)
-
-    for k, (i,j) in enumerate(fixed_bonds):
-        if (i,j) in bonds or (j,i) in bonds:
-            continue
-        else:
-            bond_distance_matrix[i,j] = bond_distance_matrix[j,i] = distance_constraints[k]
-
-    opt_coords, _ = conf_gen._get_coords_energy(coords, bonds, 1, 0.01, bond_distance_matrix, 1e-5, fixed_bonds, fixed_idxs=None)
-
-    # do second optimization, but let the molecules disperse now
-    bond_distance_matrix2 = np.zeros((len(coords), len(coords)))
-
-    for (i,j) in bonds:
-        r0 = (covalent_radii_pm[mol.GetAtomWithIdx(i).GetAtomicNum()] + covalent_radii_pm[mol.GetAtomWithIdx(j).GetAtomicNum()]) /110
-        bond_distance_matrix2[i,j] = bond_distance_matrix2[j,i] = float(r0)
-
-    opt_coords2, _ = conf_gen._get_coords_energy(opt_coords, bonds, 1, 0.01, bond_distance_matrix2, 1e-5, fixed_bonds=[], fixed_idxs=None)
-
-    conformer = mol.GetConformer()
-
-    for i in range(mol.GetNumAtoms()):
-        x,y,z = opt_coords2[i]
-        conformer.SetAtomPosition(i, Point3D(x,y,z))
-
-    write_xyz_file(mol, f'{name}.xyz')
-
-    settings_path = os.path.join(os.getcwd(), 'xtb.inp')
-
-    with open(settings_path, 'w') as f:
-        f.write('$constrain \n')
-        f.write(f'  atoms: {",".join(list(map(str, range(len(opt_coords2)))))}\n')
-        #f.write(f'  atoms: {",".join(list(map(str, idx_to_fix)))}\n')
-        f.write('$end')
-
-    command = f"xtb {name}.xyz --opt --input {settings_path} --alpb water"
-
-    subprocess.check_call(
-        command.split(),
-        stdout=open("xtblog.txt", "w"),
-        stderr=open(os.devnull, "w"),
-    )
-
-    shutil.move('xtbopt.xyz', f'{name}_opt.xyz')
+    return conformers
 
 
 def prepare_smiles(smiles):
