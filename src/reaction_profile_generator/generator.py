@@ -12,6 +12,8 @@ from autode.conformers import conf_gen, Conformer
 from typing import Callable
 from functools import wraps
 from autode.geom import calc_heavy_atom_rmsd
+from autode.constraints import Constraints
+from scipy.spatial import distance_matrix
 
 #xtb = ade.methods.XTB()
 
@@ -48,8 +50,6 @@ def work_in(dir_ext: str) -> Callable:
 
     return func_decorator
 
-def get_distance(coord1, coord2):
-    return np.sqrt((coord1 - coord2) ** 2)
 
 @work_in(workdir)
 def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
@@ -76,14 +76,14 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
        mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
        mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
        formation_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
-        (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.5 / 100
+        (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.25 / 100
 
     for bond in broken_bonds:
         i,j = map(int, bond.split('-'))
         mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
         mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
         breaking_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
-                                (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.5 / 100
+                                (covalent_radii_pm[mol_begin.GetAtomicNum()] + covalent_radii_pm[mol_end.GetAtomicNum()]) * 1.25 / 100
 
     get_conformer(full_reactant_mol)
 
@@ -105,18 +105,38 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     conformers = []
     for n in range(5):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
-        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=-1, dist_consts=constraints)
+        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=-1, solvent_name='water', dist_consts=constraints)
 
         conformer.optimise(method=ade.methods.XTB())
         conformers.append(conformer)
 
     conformers = prune_conformers(conformers, rmsd_tol = 0.1) # angström
-    print(len(conformers))
 
-    # prune the conformers based on energy and rmsd
-    # subsequently refine the structures and then use them as input for DFT TS search
-    # reaction_job in react_utils.py
+    current_bond_lengths = {}
+    # get force constant for xtb
+    r_conf = conformers[0].copy()
+    r_conf.name = f'r_conf_{i}'
+    r_conf.constraints = Constraints()
+    for key, val in formation_constraints.items():
+        r_conf.constraints.update({key: val * 1.5})
+    r_conf.optimise(method=ade.methods.XTB())
+    dist_mat = distance_matrix(r_conf._coordinates, r_conf._coordinates)
+    for i,j in breaking_constraints:
+        current_bond_lengths[i,j] = dist_mat[i,j]
+    for key, val in current_bond_lengths.items():
+        x0 = np.linspace(val - 0.05, val + 0.05, 5)
+        structs, y = stretch()
 
+
+
+
+def stretch(xtb, initial_xyz,
+            atoms, low, high, npts,
+            parameters,
+            failout=None,
+            verbose=True):
+    # line 53 in iacta/react_utils.py
+    pass
 
 
 def prune_conformers(conformers, rmsd_tol):
@@ -284,3 +304,7 @@ covalent_radii_pm = [
     150.0,
     150.0,
 ]
+
+
+def get_distance(coord1, coord2):
+    return np.sqrt((coord1 - coord2) ** 2)
