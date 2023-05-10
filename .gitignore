@@ -1,1 +1,5 @@
 .xtboptok
+test*
+dft_ts_structures 2/
+src/reaction_profile_generator/generator_old.py
+src/reaction_profile_generator/__pycache__/*
