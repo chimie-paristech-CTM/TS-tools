@@ -19,6 +19,7 @@ from autode.hessians import Hessian
 from abc import ABC
 import math
 from itertools import combinations
+import random
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -68,22 +69,30 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     # TODO: right now only single bonds are considered -> maybe not a problem???
     formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol) 
 
-    # construct dicts to translate between inidces and map numbers and vice versa
+    # construct dicts to translate between map numbers idxs and vice versa
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
     full_reactant_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_reactant_mol.GetAtoms()}
-    full_product_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_product_mol.GetAtoms()}
 
+    # TODO: clean up!!!
     # get the constraints for the initial FF conformer search
     formation_constraints, breaking_constraints = get_constraints(formed_bonds, broken_bonds, full_reactant_mol, full_reactant_dict, covalent_radii_pm)
+    formation_constraints = determine_optimum_distances(product_smiles, full_reactant_dict_reverse, formation_constraints, charge=charge)
+    breaking_constraints = determine_optimum_distances(reactant_smiles, full_reactant_dict_reverse, breaking_constraints, charge=charge)
+    formation_constraints.update((x, (2.0 + random.uniform(0, 0.1)) * y) for x,y in formation_constraints.items())
 
     # construct autodE molecule object and perform constrained conformer search
     get_conformer(full_reactant_mol)
     write_xyz_file(full_reactant_mol, 'input.xyz')
-    ade_mol = ade.Molecule('input.xyz', charge=charge) #TODO: stereochemistry??? -> this should be postprocessed by adding constraints like in autode
+    #TODO: stereochemistry??? -> this should be postprocessed by adding constraints like in autode
+    ade_mol = ade.Molecule('input.xyz', charge=charge) 
 
+    # combine constraints
     constraints = formation_constraints.copy()
     constraints.update(breaking_constraints)
 
+    print(constraints)
+
+    # set bonds
     bonds = []
     for bond in full_reactant_mol.GetBonds():
         i,j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
@@ -92,37 +101,70 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     
     ade_mol.graph.edges = bonds
 
+    # generate constrained FF conformers
+    # TODO: presumably, the atoms get scrambled here and you get bonds that no longer match the atom-mapping!
     conformer_xyz_files = []
+
+    atom_sites_to_be_frozen  = []
+    for key in constraints.keys():
+        atom_sites_to_be_frozen + [key[0], key[1]]
+    atom_sites_to_be_frozen = np.array(list(set(atom_sites_to_be_frozen)))
+    print(atom_sites_to_be_frozen)
+
     for n in range(5):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
         conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints) # solvent_name='water'
         write_xyz_file2(atoms, f'{conformer.name}.xyz')
-        optimized_xyz =  xtb_optimize_with_frozen_atoms(f'{conformer.name}.xyz', np.array([0, 2, 3]))
+        optimized_xyz =  xtb_optimize_with_frozen_atoms(f'{conformer.name}.xyz', atom_sites_to_be_frozen)
         conformer_xyz_files.append(optimized_xyz)
 
+    # prune conformers 
+    # TODO: this function is currently broken!
     clusters = count_unique_conformers(conformer_xyz_files, full_reactant_mol)
     conformers_to_do = [conformer_xyz_files[cluster[0]] for cluster in clusters]
 
+    # Apply attractive potentials and run optimization
+    formation_constraints_final = determine_optimum_distances(product_smiles, full_reactant_dict_reverse, formation_constraints, charge=charge)
+
+    print(breaking_constraints, formation_constraints)
+    print(formation_constraints_final)
+
     for conformer in conformers_to_do:
-        log_file = xtb_optimize_with_applied_potentials(conformer, formation_constraints, 0.15) # TODO: also add repulsive terms???
-        energies, coords, atoms = read_energy_coords_file(log_file)
+        for force_constant in np.arange(0.03, 0.06, 0.01):
+            log_file = xtb_optimize_with_applied_potentials(conformer, formation_constraints_final, force_constant)
+            energies, coords, atoms = read_energy_coords_file(log_file)
+            potentials = determine_potential(coords, formation_constraints_final, force_constant)
 
-        potentials = determine_potential(coords, formation_constraints, 0.15)
+            print(force_constant, potentials)
+            print(energies - potentials)
+            if potentials[-1] > 0.01:
+                print(distance_matrix(coords[-1],coords[-1]))
+                print(atoms[-1])
+                continue # means that you don't reach the products
+            else:
+                true_energy = list(energies - potentials)
+                ts_guess_index = true_energy.index(max(true_energy))
+                print(ts_guess_index)
+                break
 
-        print(energies + potentials)
-        print(potentials)
-        print(energies)
-        print(distance_matrix(coords[7], coords[7]))
+        for index in range(ts_guess_index, ts_guess_index + 6):
+            print(force_constant, distance_matrix(coords[index], coords[index]))
+            filename = write_xyz_file3(atoms[index], coords[index], f'ts_guess_{force_constant}.xyz')
+            with open('lol.out', 'w') as out:
+                process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), stdout=out)
+                process.wait()
+            n_freq = count_negative_frequencies('g98.out')
+            if n_freq == 1:
+                break
 
-        coords_true_ts = np.array([[0.42493, -0.25002, -0.00000],[-0.69481, 0.09111, 0.00000],[1.51701, -0.26492, 0.00000],[1.49188, 1.03614, -0.00000]])
 
-        print(distance_matrix(coords_true_ts, coords_true_ts))
-
-
-        # write new input -> constraining potential
-        # execute xtb calculation -> get intermediate geometries and energies
-        # determine potential energy -> subtract these from the full energy
-        # determine saddle point   
+def count_negative_frequencies(filename):
+    with open(filename, 'r') as file:
+        for line in file:
+            if line.strip().startswith('Frequencies --'):
+                frequencies = line.strip().split()[2:]
+                print(frequencies)
+                return len([freq for freq in frequencies if float(freq) < 0])
 
 
 def write_xyz_file2(atoms, filename):
@@ -139,7 +181,16 @@ def write_xyz_file2(atoms, filename):
         # Write the atom symbols and coordinates for each atom
         for atom in atoms:
             f.write(f'{atom.atomic_symbol} {atom.coord[0]:.6f} {atom.coord[1]:.6f} {atom.coord[2]:.6f}\n')
-    
+
+
+def write_xyz_file3(atoms, coords, filename='ts_guess.xyz'):
+    with open(filename, 'w') as f:
+        f.write(f'{len(atoms)}\n')
+        f.write("test \n")
+        for i, coord in enumerate(coords):
+            x, y, z = coord
+            f.write(f"{atoms[i]} {x:.6f} {y:.6f} {z:.6f}\n")
+    return filename
 
 def xtb_optimize_with_frozen_atoms(xyz_file_path, frozen_atoms, charge=0, spin=1):
     """
@@ -177,11 +228,11 @@ def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_const
         f.write('$constrain\n')
         f.write(f'    force constant={force_constant}\n')
         for key, val in constraints.items():
-            f.write(f'    distance: {key[0]}, {key[1]}, {val * 0.6}\n')
+            f.write(f'    distance: {key[0] + 1}, {key[1] + 1}, {val}\n')
         f.write('$end\n')
     
     with open(os.path.splitext(xyz_file_path)[0] + '_path.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {xyz_file_path} --opt --input {xtb_input_path} --charge {charge}'.split(), stdout=out)
+        process = subprocess.Popen(f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge}'.split(), stdout=out)
         process.wait()
 
     os.rename('xtbopt.log', f'{os.path.splitext(xyz_file_path)[0]}_path.log')
@@ -252,7 +303,7 @@ def read_energy_coords_file(file_path):
                 atoms.append(lines[i].split()[0])
                 coords.append(np.array(list(map(float,lines[i].split()[1:]))))
                 i += 1
-            print(np.array(coords))
+
             all_coords.append(np.array(coords))
             all_atoms.append(atoms)
     return np.array(all_energies), all_coords, all_atoms
@@ -264,35 +315,11 @@ def determine_potential(all_coords, constraints, force_constant):
         potential = 0
         dist_matrix = distance_matrix(coords,coords)
         for key, val in constraints.items():
-            actual_distance = dist_matrix[key[0],key[1]] - (val * 0.6)
-            print(actual_distance, angstrom_to_bohr(actual_distance), force_constant * angstrom_to_bohr(actual_distance) ** 2)
+            actual_distance = dist_matrix[key[0],key[1]] - val
             potential += force_constant * angstrom_to_bohr(actual_distance) ** 2
         potentials.append(potential)
     
-    return np.array(potentials)
-
-
-
-    #__________    
-    conformer.optimise(method=xtb) # TODO: fix the atoms exactly and optimize everything else
-    conformers.append(conformer)
-    # THESE CONFORMERS ARE ACTUALLY ALREADY GOOD ENOUGH IN QUALITY!!!!! -> simply figure out wtf is wrong with xtb-gaussian, and/or just do freq calculation to decide constraint magnitude
-
-    conformers = prune_conformers(conformers, rmsd_tol = 0.3) # angström
-    for conformer in conformers:
-        print(conformer.energy)
-
-    xtb.force_constant = 2
-
-    for i, conformer in enumerate(conformers):
-        for k in np.arange(0.2, 0.5, 0.1):
-            new_conf = conformer.copy()
-            new_conf.name = f'conf_{i}_k_{round(k,1)}'
-            new_conf.constraints = Constraints()
-            for key, val in formation_constraints.items():
-                new_conf.constraints.update({key: val * 0.6}) # TODO: put here the correct bond distances
-            print(formation_constraints)
-            new_conf.optimise(method = xtb)
+    return potentials
                 
 
 def angstrom_to_bohr(distance_angstrom):
@@ -301,65 +328,6 @@ def angstrom_to_bohr(distance_angstrom):
     """
     return distance_angstrom * 1.88973
 
-
-def read_hessian(filename):
-    with open(filename, 'r') as f:
-        data = f.read()
-    print(' '.join(data.split()))
-    numbers = list(map(float, data.split()[1:]))
-    return numbers
-
-def make_square_array(numbers):
-    n = np.sqrt(len(numbers))
-    if int(n) != n:
-        raise ValueError("Invalid number of elements for a square array.")
-    A = [[0 for j in range(n)] for i in range(n)]
-    k = 0
-    for i in range(n):
-        for j in range(i + 1):
-            A[i][j] = A[j][i] = numbers[k]
-            k += 1
-    return A
-
-
-    #__________________________
-    raise KeyError
-    breaking_constraints_final = determine_forces(reactant_smiles, broken_bonds, full_reactant_dict, full_reactant_dict_reverse)
-    formation_constraints_final = determine_forces(product_smiles, formed_bonds, full_reactant_dict, full_product_dict_reverse)
-
-    for i, conformer in enumerate(conformers):
-        new_conf = conformer.copy()
-        new_conf.constraints = Constraints()
-        new_conf.name = f'test_{i}'
-        xtb.force_constant = 2
-        for key, val in breaking_constraints_final.items(): # TODO: maybe this needs to happen earlier???
-            new_conf.constraints.update({key: val[0] * 1.25})
-        for key, val in formation_constraints_final.items():
-            i == 0
-            new_conf.constraints.update({key: val[0] * (1.40 - 0.2 * i)})
-            i += 1
-        new_conf.optimise(method = xtb)
-
-
-    # THIS ENTIRE PART MAY NOT BE NEEDED!
-        energies = []
-        final_key, final_val = list(breaking_constraints_final.items())[0]
-        for distance in range(10, 40):
-            xtb.force_constant = final_val[1]
-            final_conf = new_conf.copy()
-            final_conf.constraints = Constraints()
-            final_conf.name = f'final_{i}_{distance/100}'
-            final_conf.constraints.update({final_key: final_val[0] + distance/100})
-            xtb.force_constant = 2 * final_val[1] # TODO: fix this!!!
-            final_conf.optimise(method = xtb)
-            energies.append(final_conf.energy)
-            
-        print(energies, range(10, 30)[energies.index(max(energies))])
-        #raise KeyError
-                #dist_matrix = distance_matrix(conformer._coordinates, conformer._coordinates) # you probably want to ensure that bond distances are longer than product distances
-                #print(dist_matrix)
-                #print('')
-        
 
 def get_constraints(formed_bonds, broken_bonds, full_reactant_mol, full_reactant_dict, radii_dict):
     formation_constraints, breaking_constraints = {}, {}
@@ -382,76 +350,53 @@ def get_constraints(formed_bonds, broken_bonds, full_reactant_mol, full_reactant
 
 
 # you don't want the other molecules to be there as well
-def determine_forces(smiles, active_bonds, full_reactant_dict, full_mol_dict_reverse):
-    #print(smiles, constraints, full_mol_dict_reverse)
+# TODO: This can be made more efficient...
+def determine_optimum_distances(smiles, dict_reverse, constraints, solvent=None, charge=0):
     mols = [Chem.MolFromSmiles(smi, ps) for smi in smiles.split('.')]
     owning_mol_dict = {}
     for idx, mol in enumerate(mols):
         for atom in mol.GetAtoms():
             owning_mol_dict[atom.GetAtomMapNum()] = idx
 
-    constraints = {}
+    optimum_distances = {}
 
-    xtb.force_constant = 5
-
-    for bond in active_bonds:
-        i,j = map(int, bond.split('-'))
-        print(i,j, owning_mol_dict[i], owning_mol_dict[j], smiles)
+    for active_bond in constraints.keys():
+        idx1,idx2 = active_bond
+        i,j = dict_reverse[idx1], dict_reverse[idx2]
+        print(i,j, smiles)
         if owning_mol_dict[i] == owning_mol_dict[j]:
             mol = copy.deepcopy(mols[owning_mol_dict[i]])
         else:
-            print("WTF")
             raise KeyError
     
         mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol.GetAtoms()}
-        print(mol_dict)
         [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
 
         # detour needed to avoid reordering of the atoms by autodE
         get_conformer(mol)
-        write_xyz_file(mol, 'reactant.xyz')
+        write_xyz_file(mol, 'tmp.xyz')
 
-        ade_rmol = ade.Molecule('reactant.xyz', name='lol', solvent_name='water')
+        #TODO: fix this
+        if '-' in Chem.MolToSmiles(mol):
+            charge = -1
+        elif '+' in Chem.MolToSmiles(mol):
+            charge = 1
+        else:
+            charge = 0
+
+        if solvent != None:
+            ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=solvent)
+        else:
+            ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
         ade_rmol.populate_conformers(n_confs=1)
 
         ade_rmol.conformers[0].optimise(method=xtb)
         dist_matrix = distance_matrix(ade_rmol.conformers[0]._coordinates, ade_rmol.conformers[0]._coordinates)
         current_bond_length = dist_matrix[mol_dict[i], mol_dict[j]]
-        x0 = np.linspace(current_bond_length - 0.05, current_bond_length + 0.05, 5)
-        energies = stretch(ade_rmol.conformers[0], x0, (mol_dict[i], mol_dict[j])) # make sure this is ok
-        
-        p = np.polyfit(np.array(x0), np.array(energies), 2)
 
-        force_constant = float(p[0] * 2 * bohr_ang) 
-        constraints[(full_reactant_dict[i],full_reactant_dict[j])] = [current_bond_length, force_constant]
+        optimum_distances[idx1,idx2] = current_bond_length
     
-    return constraints
-
-
-def stretch(conformer, x0, bond):
-    energies = []
-
-    for length in x0:
-        conformer.constraints.update({bond: length})
-        conformer.name = f'stretch_{length}'
-        conformer.optimise(method=ade.methods.XTB())
-        energies.append(conformer.energy)
-    
-    return energies
-
-
-def prune_conformers(conformers, rmsd_tol):
-    conformers = [conformer for conformer in conformers if conformer.energy != None]
-    #idx_list = [idx for idx in enumerate(conformers)]
-    #energies = [conformers[idx].energy for idx in idx_list]
-    #for i, energy in enumerate(reversed(idxs))
-    for idx in reversed(range(len(conformers) - 1)):
-        conf = conformers[idx]
-        if any(calc_heavy_atom_rmsd(conf.atoms, other.atoms) < rmsd_tol 
-               for o_idx, other in enumerate(conformers) if o_idx != idx):
-            del conformers[idx]
-    
-    return conformers
+    return optimum_distances
 
 
 def prepare_smiles(smiles):
