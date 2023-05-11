@@ -105,17 +105,11 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     # TODO: presumably, the atoms get scrambled here and you get bonds that no longer match the atom-mapping!
     conformer_xyz_files = []
 
-    atom_sites_to_be_frozen  = []
-    for key in constraints.keys():
-        atom_sites_to_be_frozen + [key[0], key[1]]
-    atom_sites_to_be_frozen = np.array(list(set(atom_sites_to_be_frozen)))
-    print(atom_sites_to_be_frozen)
-
     for n in range(5):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
         conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints) # solvent_name='water'
         write_xyz_file2(atoms, f'{conformer.name}.xyz')
-        optimized_xyz =  xtb_optimize_with_frozen_atoms(f'{conformer.name}.xyz', atom_sites_to_be_frozen)
+        optimized_xyz =  xtb_optimize(f'{conformer.name}.xyz')
         conformer_xyz_files.append(optimized_xyz)
 
     # prune conformers 
@@ -192,24 +186,18 @@ def write_xyz_file3(atoms, coords, filename='ts_guess.xyz'):
             f.write(f"{atoms[i]} {x:.6f} {y:.6f} {z:.6f}\n")
     return filename
 
-def xtb_optimize_with_frozen_atoms(xyz_file_path, frozen_atoms, charge=0, spin=1):
+
+def xtb_optimize(xyz_file_path, charge=0, spin=1):
     """
-    Perform an xTB optimization of the geometry in the given xyz file, keeping
-    the specified atoms frozen in place, and return the path to the optimized
-    geometry file.
+    Perform an xTB optimization of the geometry in the given xyz file 
+    and return the path to the optimized geometry file.
     
     :param xyz_file_path: The path to the xyz file to optimize.
-    :param frozen_atoms: A list of the indices of the atoms to freeze.
     :return: The path to the optimized xyz file.
     """
-    # Create the xTB input file.
-    xtb_input_path = os.path.splitext(xyz_file_path)[0] + '.inp'
-
-    with open(xtb_input_path, 'w') as f:
-        f.write(f'$fix \n    atoms: {",".join(list(map(str,frozen_atoms + 1)))}\n$end\n')
-    
     with open(os.path.splitext(xyz_file_path)[0] + '.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {xyz_file_path} --opt --input {xtb_input_path} --charge {charge}'.split(), stdout=out)
+        print(f'xtb {xyz_file_path} --opt --charge {charge}')
+        process = subprocess.Popen(f'xtb {xyz_file_path} --opt --charge {charge}'.split(), stdout=out)
         process.wait()
 
     os.rename('xtbopt.xyz', f'{os.path.splitext(xyz_file_path)[0]}_optimized.xyz')
@@ -232,12 +220,14 @@ def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_const
         f.write('$end\n')
     
     with open(os.path.splitext(xyz_file_path)[0] + '_path.out', 'w') as out:
+        print(f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge}')
         process = subprocess.Popen(f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge}'.split(), stdout=out)
         process.wait()
 
     os.rename('xtbopt.log', f'{os.path.splitext(xyz_file_path)[0]}_path.log')
 
     return f'{os.path.splitext(xyz_file_path)[0]}_path.log'
+
 
 # TODO: this function is broken!!!!
 def count_unique_conformers(xyz_file_paths, full_reactant_mol):
