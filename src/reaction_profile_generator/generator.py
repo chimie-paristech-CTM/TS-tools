@@ -28,6 +28,7 @@ workdir = 'test'
 
 xtb = ade.methods.XTB()
 
+
 def work_in(dir_ext: str) -> Callable:
     """Execute a function in a different directory"""
 
@@ -58,39 +59,33 @@ def work_in(dir_ext: str) -> Callable:
 
 
 @work_in(workdir)
-def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
+def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, solvent=None):
     # get the reactant and product mol
     full_reactant_mol = Chem.MolFromSmiles(reactant_smiles, ps)
     full_product_mol = Chem.MolFromSmiles(product_smiles, ps)
 
-    # TODO: determine this from SMILES
-    charge = 0  
+    charge =  Chem.GetFormalCharge(full_reactant_mol) #sum([Chem.GetFormalCharge(atom) for atom in full_reactant_mol.GetAtoms()])
 
-    # TODO: right now only single bonds are considered -> maybe not a problem???
     formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol) 
 
     # construct dicts to translate between map numbers idxs and vice versa
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
-    full_reactant_dict_reverse = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_reactant_mol.GetAtoms()}
 
-    # TODO: clean up!!!
     # get the constraints for the initial FF conformer search
-    formation_constraints, breaking_constraints = get_constraints(formed_bonds, broken_bonds, full_reactant_mol, full_reactant_dict, covalent_radii_pm)
-    formation_constraints = determine_optimum_distances(product_smiles, full_reactant_dict_reverse, formation_constraints, charge=charge)
-    breaking_constraints = determine_optimum_distances(reactant_smiles, full_reactant_dict_reverse, breaking_constraints, charge=charge)
-    formation_constraints.update((x, (2.0 + random.uniform(0, 0.1)) * y) for x,y in formation_constraints.items())
+    formation_constraints = get_optimal_distances(product_smiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
+    breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
+    formation_constraints_stretched = formation_constraints.copy()
+    formation_constraints_stretched.update((x, (2.0 + random.uniform(0, 0.1)) * y) for x,y in formation_constraints_stretched.items())
 
     # construct autodE molecule object and perform constrained conformer search
     get_conformer(full_reactant_mol)
-    write_xyz_file(full_reactant_mol, 'input.xyz')
-    #TODO: stereochemistry??? -> this should be postprocessed by adding constraints like in autode
+    write_xyz_file_from_mol(full_reactant_mol, 'input.xyz')
+    #TODO: stereochemistry??? -> this should be postprocessed by adding constraints like in autode!
     ade_mol = ade.Molecule('input.xyz', charge=charge) 
 
     # combine constraints
-    constraints = formation_constraints.copy()
-    constraints.update(breaking_constraints)
-
-    print(constraints)
+    constraints = breaking_constraints.copy()
+    constraints.update(formation_constraints_stretched)
 
     # set bonds
     bonds = []
@@ -101,55 +96,45 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles):
     
     ade_mol.graph.edges = bonds
 
-    # generate constrained FF conformers
-    # TODO: presumably, the atoms get scrambled here and you get bonds that no longer match the atom-mapping!
+    # generate constrained FF conformers -> first find a reasonable geometry, then you fix the stereochemistry, and then you generate conformers again!
     conformer_xyz_files = []
-
     for n in range(5):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
         conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints) # solvent_name='water'
-        write_xyz_file2(atoms, f'{conformer.name}.xyz')
-        optimized_xyz =  xtb_optimize(f'{conformer.name}.xyz')
+        write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
+        optimized_xyz = xtb_optimize(f'{conformer.name}.xyz', charge=charge, solvent=solvent)
         conformer_xyz_files.append(optimized_xyz)
 
     # prune conformers 
-    # TODO: this function is currently broken!
     clusters = count_unique_conformers(conformer_xyz_files, full_reactant_mol)
     conformers_to_do = [conformer_xyz_files[cluster[0]] for cluster in clusters]
 
     # Apply attractive potentials and run optimization
-    formation_constraints_final = determine_optimum_distances(product_smiles, full_reactant_dict_reverse, formation_constraints, charge=charge)
-
-    print(breaking_constraints, formation_constraints)
-    print(formation_constraints_final)
 
     for conformer in conformers_to_do:
-        for force_constant in np.arange(0.03, 0.06, 0.01):
-            log_file = xtb_optimize_with_applied_potentials(conformer, formation_constraints_final, force_constant)
+        for force_constant in np.arange(0.02, 0.16, 0.02):
+            log_file = xtb_optimize_with_applied_potentials(conformer, formation_constraints, force_constant, charge=charge, solvent=solvent)
             energies, coords, atoms = read_energy_coords_file(log_file)
-            potentials = determine_potential(coords, formation_constraints_final, force_constant)
+            potentials = determine_potential(coords, formation_constraints, force_constant)
 
-            print(force_constant, potentials)
-            print(energies - potentials)
+            #print(energies - potentials)
             if potentials[-1] > 0.01:
-                print(distance_matrix(coords[-1],coords[-1]))
-                print(atoms[-1])
-                continue # means that you don't reach the products
+                continue # means that you haven't reached the products
             else:
                 true_energy = list(energies - potentials)
                 ts_guess_index = true_energy.index(max(true_energy))
-                print(ts_guess_index)
+                print(force_constant, ts_guess_index)
                 break
 
         for index in range(ts_guess_index, ts_guess_index + 6):
-            print(force_constant, distance_matrix(coords[index], coords[index]))
-            filename = write_xyz_file3(atoms[index], coords[index], f'ts_guess_{force_constant}.xyz')
+            filename = write_xyz_file_from_atoms_and_coords(atoms[index], coords[index], f'ts_guess_{force_constant}.xyz')
             with open('lol.out', 'w') as out:
                 process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), stdout=out)
                 process.wait()
             n_freq = count_negative_frequencies('g98.out')
             if n_freq == 1:
                 break
+            print(index)
 
 
 def count_negative_frequencies(filename):
@@ -161,9 +146,9 @@ def count_negative_frequencies(filename):
                 return len([freq for freq in frequencies if float(freq) < 0])
 
 
-def write_xyz_file2(atoms, filename):
+def write_xyz_file_from_ade_atoms(atoms, filename):
     """
-    Turn atoms into an xyz file with the given `filename`.
+    Turn ade atoms object into an xyz file with the given `filename`.
     """
     with open(filename, 'w') as f:
         # Write the number of atoms as the first line
@@ -177,7 +162,7 @@ def write_xyz_file2(atoms, filename):
             f.write(f'{atom.atomic_symbol} {atom.coord[0]:.6f} {atom.coord[1]:.6f} {atom.coord[2]:.6f}\n')
 
 
-def write_xyz_file3(atoms, coords, filename='ts_guess.xyz'):
+def write_xyz_file_from_atoms_and_coords(atoms, coords, filename='ts_guess.xyz'):
     with open(filename, 'w') as f:
         f.write(f'{len(atoms)}\n')
         f.write("test \n")
@@ -187,7 +172,7 @@ def write_xyz_file3(atoms, coords, filename='ts_guess.xyz'):
     return filename
 
 
-def xtb_optimize(xyz_file_path, charge=0, spin=1):
+def xtb_optimize(xyz_file_path, charge=0, solvent=None):
     """
     Perform an xTB optimization of the geometry in the given xyz file 
     and return the path to the optimized geometry file.
@@ -195,9 +180,13 @@ def xtb_optimize(xyz_file_path, charge=0, spin=1):
     :param xyz_file_path: The path to the xyz file to optimize.
     :return: The path to the optimized xyz file.
     """
+    if solvent != None:
+        cmd = f'xtb {xyz_file_path} --opt --charge {charge} --solvent {solvent}'
+    else:
+        cmd = f'xtb {xyz_file_path} --opt --charge {charge}'
     with open(os.path.splitext(xyz_file_path)[0] + '.out', 'w') as out:
-        print(f'xtb {xyz_file_path} --opt --charge {charge}')
-        process = subprocess.Popen(f'xtb {xyz_file_path} --opt --charge {charge}'.split(), stdout=out)
+        print(cmd)
+        process = subprocess.Popen(cmd.split(), stdout=out)
         process.wait()
 
     os.rename('xtbopt.xyz', f'{os.path.splitext(xyz_file_path)[0]}_optimized.xyz')
@@ -205,8 +194,7 @@ def xtb_optimize(xyz_file_path, charge=0, spin=1):
     return f'{os.path.splitext(xyz_file_path)[0]}_optimized.xyz'
 
 
-# TODO: set constraints to correct distances in product
-def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_constant, charge=0, spin=1):
+def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_constant, charge=0, solvent=None):
     """
     """
     # Create the xTB input file.
@@ -219,9 +207,14 @@ def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_const
             f.write(f'    distance: {key[0] + 1}, {key[1] + 1}, {val}\n')
         f.write('$end\n')
     
+    if solvent != None:
+        cmd = f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge} --solvent {solvent}'
+    else:
+        cmd = f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge}'
+
     with open(os.path.splitext(xyz_file_path)[0] + '_path.out', 'w') as out:
-        print(f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge}')
-        process = subprocess.Popen(f'xtb {xyz_file_path} --opt --input {xtb_input_path} -v --charge {charge}'.split(), stdout=out)
+        print(cmd)
+        process = subprocess.Popen(cmd.split(), stdout=out)
         process.wait()
 
     os.rename('xtbopt.log', f'{os.path.splitext(xyz_file_path)[0]}_path.log')
@@ -229,7 +222,6 @@ def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_const
     return f'{os.path.splitext(xyz_file_path)[0]}_path.log'
 
 
-# TODO: this function is broken!!!!
 def count_unique_conformers(xyz_file_paths, full_reactant_mol):
     # Load the molecules from the xyz files
     molecules = []
@@ -238,15 +230,12 @@ def count_unique_conformers(xyz_file_paths, full_reactant_mol):
             lines = xyz_file.readlines()
             num_atoms = int(lines[0])
             coords = [list(map(float,line.split()[1:])) for line in lines[2:num_atoms+2]]
-            symbols = [line.split()[0] for line in lines[2:num_atoms+2]]
-            mol = Chem.MolFromMolBlock(Chem.MolToMolBlock(full_reactant_mol))
-            for i, atom in enumerate(mol.GetAtoms()):
-                pos = coords[i]
-                atom.SetProp('x', str(pos[0]))
-                atom.SetProp('y', str(pos[1]))
-                atom.SetProp('z', str(pos[2]))
+            mol = Chem.Mol(full_reactant_mol)
+            conformer = mol.GetConformer()
+            for i in range(num_atoms):
+                conformer.SetAtomPosition(i, coords[i])
             molecules.append(mol)
-
+            
     # Calculate the RMSD between all pairs of molecules
     rmsd_matrix = np.zeros((len(molecules), len(molecules)))
     for i, j in combinations(range(len(molecules)), 2):
@@ -319,41 +308,18 @@ def angstrom_to_bohr(distance_angstrom):
     return distance_angstrom * 1.88973
 
 
-def get_constraints(formed_bonds, broken_bonds, full_reactant_mol, full_reactant_dict, radii_dict):
-    formation_constraints, breaking_constraints = {}, {}
-
-    for bond in formed_bonds:
-       i,j = map(int, bond.split('-'))
-       mol_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
-       mol_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
-       formation_constraints[(mol_begin.GetIdx(), mol_end.GetIdx())] = \
-        (radii_dict[mol_begin.GetAtomicNum()] + radii_dict[mol_end.GetAtomicNum()]) * 1.7 / 100
-
-    for bond in broken_bonds:
-        i,j = map(int, bond.split('-'))
-        atom_begin = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[i])
-        atom_end = full_reactant_mol.GetAtomWithIdx(full_reactant_dict[j])
-        breaking_constraints[(atom_begin.GetIdx(), atom_end.GetIdx())] = \
-                                (radii_dict[atom_begin.GetAtomicNum()] + radii_dict[atom_end.GetAtomicNum()]) * 1 / 100
-
-    return formation_constraints, breaking_constraints
-
-
-# you don't want the other molecules to be there as well
-# TODO: This can be made more efficient...
-def determine_optimum_distances(smiles, dict_reverse, constraints, solvent=None, charge=0):
+def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
     mols = [Chem.MolFromSmiles(smi, ps) for smi in smiles.split('.')]
     owning_mol_dict = {}
     for idx, mol in enumerate(mols):
         for atom in mol.GetAtoms():
             owning_mol_dict[atom.GetAtomMapNum()] = idx
 
-    optimum_distances = {}
+    optimal_distances = {}
 
-    for active_bond in constraints.keys():
-        idx1,idx2 = active_bond
-        i,j = dict_reverse[idx1], dict_reverse[idx2]
-        print(i,j, smiles)
+    for bond in bonds:
+        i,j = map(int, bond.split('-'))
+        idx1, idx2 = mapnum_dict[i], mapnum_dict[j]
         if owning_mol_dict[i] == owning_mol_dict[j]:
             mol = copy.deepcopy(mols[owning_mol_dict[i]])
         else:
@@ -364,15 +330,9 @@ def determine_optimum_distances(smiles, dict_reverse, constraints, solvent=None,
 
         # detour needed to avoid reordering of the atoms by autodE
         get_conformer(mol)
-        write_xyz_file(mol, 'tmp.xyz')
+        write_xyz_file_from_mol(mol, 'tmp.xyz')
 
-        #TODO: fix this
-        if '-' in Chem.MolToSmiles(mol):
-            charge = -1
-        elif '+' in Chem.MolToSmiles(mol):
-            charge = 1
-        else:
-            charge = 0
+        charge = Chem.GetFormalCharge(mol)
 
         if solvent != None:
             ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=solvent)
@@ -384,9 +344,9 @@ def determine_optimum_distances(smiles, dict_reverse, constraints, solvent=None,
         dist_matrix = distance_matrix(ade_rmol.conformers[0]._coordinates, ade_rmol.conformers[0]._coordinates)
         current_bond_length = dist_matrix[mol_dict[i], mol_dict[j]]
 
-        optimum_distances[idx1,idx2] = current_bond_length
+        optimal_distances[idx1,idx2] = current_bond_length
     
-    return optimum_distances
+    return optimal_distances
 
 
 def prepare_smiles(smiles):
@@ -435,102 +395,12 @@ def get_conformer(mol):
     return mol
 
 
-covalent_radii_pm = [
-    31.0,
-    28.0,
-    128.0,
-    96.0,
-    84.0,
-    76.0,
-    71.0,
-    66.0,
-    57.0,
-    58.0,
-    166.0,
-    141.0,
-    121.0,
-    111.0,
-    107.0,
-    105.0,
-    102.0,
-    106.0,
-    102.0,
-    203.0,
-    176.0,
-    170.0,
-    160.0,
-    153.0,
-    139.0,
-    161.0,
-    152.0,
-    150.0,
-    124.0,
-    132.0,
-    122.0,
-    122.0,
-    120.0,
-    119.0,
-    120.0,
-    116.0,
-    220.0,
-    195.0,
-    190.0,
-    175.0,
-    164.0,
-    154.0,
-    147.0,
-    146.0,
-    142.0,
-    139.0,
-    145.0,
-    144.0,
-    142.0,
-    139.0,
-    139.0,
-    138.0,
-    139.0,
-    140.0,
-    244.0,
-    215.0,
-    207.0,
-    204.0,
-    203.0,
-    201.0,
-    199.0,
-    198.0,
-    198.0,
-    196.0,
-    194.0,
-    192.0,
-    192.0,
-    189.0,
-    190.0,
-    187.0,
-    175.0,
-    187.0,
-    170.0,
-    162.0,
-    151.0,
-    144.0,
-    141.0,
-    136.0,
-    136.0,
-    132.0,
-    145.0,
-    146.0,
-    148.0,
-    140.0,
-    150.0,
-    150.0,
-]
-
-
 def get_distance(coord1, coord2):
     return np.sqrt((coord1 - coord2) ** 2)
 
 
-def write_xyz_file(mol, filename):
-    # Generate conformer and retrieve coordinates
+def write_xyz_file_from_mol(mol, filename):
+    # Generate conformer and retrieve coordinates from mol
     conformer = mol.GetConformer()
     coords = conformer.GetPositions()
 
