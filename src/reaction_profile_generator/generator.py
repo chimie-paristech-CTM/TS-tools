@@ -64,7 +64,7 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     full_reactant_mol = Chem.MolFromSmiles(reactant_smiles, ps)
     full_product_mol = Chem.MolFromSmiles(product_smiles, ps)
 
-    charge =  Chem.GetFormalCharge(full_reactant_mol) #sum([Chem.GetFormalCharge(atom) for atom in full_reactant_mol.GetAtoms()])
+    charge =  Chem.GetFormalCharge(full_reactant_mol)
 
     formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol) 
 
@@ -81,7 +81,10 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     get_conformer(full_reactant_mol)
     write_xyz_file_from_mol(full_reactant_mol, 'input.xyz')
     #TODO: stereochemistry??? -> this should be postprocessed by adding constraints like in autode!
-    ade_mol = ade.Molecule('input.xyz', charge=charge) 
+    ade_mol = ade.Molecule('input.xyz', charge=charge)
+    for node in ade_mol.graph.nodes:
+        ade_mol.graph.nodes[node]['stereo'] = False
+        print(ade_mol.graph.nodes[node]['stereo'])    
 
     # combine constraints
     constraints = breaking_constraints.copy()
@@ -97,10 +100,34 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     ade_mol.graph.edges = bonds
 
     # generate constrained FF conformers -> first find a reasonable geometry, then you fix the stereochemistry, and then you generate conformers again!
-    conformer_xyz_files = []
-    for n in range(5):
+    stereochemistry_smiles = get_stereochemistry_from_smiles(full_reactant_mol)
+
+    #i=0
+    #stereochemistry_match = False
+    #while not stereochemistry_match:
+    #    i += 1
+        #if 'conformer_init.xyz' in os.listdir():
+        #    os.remove('conformer_init.xyz')
+    
+    for n in range(100):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
-        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints) # solvent_name='water'
+        conformer = Conformer(name=f"conformer_init", atoms=atoms, charge=charge, dist_consts=constraints)
+        write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
+        stereochemistry_xyz = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', reactant_smiles)
+        if stereochemistry_smiles == stereochemistry_xyz:
+            break
+
+    # fix the stereochemistry in autode -> should be done automatically! (probably not for pi bonds)
+    final_ade_mol = ade.Molecule('conformer_init.xyz')
+    for node in final_ade_mol.graph.nodes:
+        print(final_ade_mol.graph.nodes[node]['stereo']) 
+    
+    # generate additional conformers
+    conformer_xyz_files = []
+    n_conf = 5
+    for n in range(n_conf):
+        atoms = conf_gen.get_simanl_atoms(species=final_ade_mol, dist_consts=constraints, conf_n=n_conf)
+        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints)
         write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
         optimized_xyz = xtb_optimize(f'{conformer.name}.xyz', charge=charge, solvent=solvent)
         conformer_xyz_files.append(optimized_xyz)
@@ -110,15 +137,15 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     conformers_to_do = [conformer_xyz_files[cluster[0]] for cluster in clusters]
 
     # Apply attractive potentials and run optimization
-
     for conformer in conformers_to_do:
-        for force_constant in np.arange(0.02, 0.16, 0.02):
+        for force_constant in np.arange(0.02, 0.40, 0.02):
             log_file = xtb_optimize_with_applied_potentials(conformer, formation_constraints, force_constant, charge=charge, solvent=solvent)
             energies, coords, atoms = read_energy_coords_file(log_file)
             potentials = determine_potential(coords, formation_constraints, force_constant)
 
             #print(energies - potentials)
             if potentials[-1] > 0.01:
+                print(potentials[-1])
                 continue # means that you haven't reached the products
             else:
                 true_energy = list(energies - potentials)
@@ -135,6 +162,60 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
             if n_freq == 1:
                 break
             print(index)
+
+#TODO: include cis-trans as well; maybe product mol too?
+def get_stereochemistry_from_smiles(reactant_mol):
+    """
+    Check if the stereochemistry is present in the reactant molecule SMILES.
+    """
+    stereochemistry = Chem.FindMolChiralCenters(reactant_mol)
+
+    return stereochemistry
+
+
+def add_xyz_conformer(smiles, xyz_file):
+    # Load the molecule from the SMILES string
+    mol = Chem.MolFromSmiles(smiles, ps)
+    
+    # Read the atomic coordinates from the XYZ file
+    with open(xyz_file, 'r') as f:
+        lines = f.readlines()
+        num_atoms = int(lines[0])
+        coords = []
+        symbols = []
+        for i in range(2, num_atoms+2):
+            line = lines[i].split()
+            symbol = line[0]
+            x, y, z = map(float, line[1:])
+            symbols.append(symbol)
+            coords.append((x, y, z))
+
+    # Add the conformer to the molecule
+    conformer = Chem.Conformer(num_atoms)
+    for i, coord in enumerate(coords):
+        conformer.SetAtomPosition(i, coord)
+    mol.AddConformer(conformer)
+    
+    return mol
+
+
+def get_stereochemistry_from_xyz(xyz_file, smiles):
+    # Load the XYZ file using RDKit.
+    mol = Chem.MolFromSmiles(smiles, ps)
+    Chem.RemoveStereochemistry(mol)
+    no_stereo_smiles = Chem.MolToSmiles(mol)
+    mol = add_xyz_conformer(no_stereo_smiles, xyz_file)
+
+    conformer = mol.GetConformer()
+    for i in range(mol.GetNumAtoms()):
+        pos = conformer.GetAtomPosition(i)
+        print(f"Atom {i+1}: {pos.x:.4f} {pos.y:.4f} {pos.z:.4f}")
+
+    Chem.AssignStereochemistryFrom3D(mol)
+
+    stereochemistry = Chem.FindMolChiralCenters(mol)
+
+    return stereochemistry
 
 
 def count_negative_frequencies(filename):
