@@ -86,9 +86,10 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
         ade_mol.graph.nodes[node]['stereo'] = False
         print(ade_mol.graph.nodes[node]['stereo'])    
 
-    # combine constraints
+    # combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
-    constraints.update(formation_constraints_stretched)
+    if len(reactant_smiles.split('.')) != 1:
+        constraints.update(formation_constraints_stretched)
 
     # set bonds
     bonds = []
@@ -101,13 +102,6 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
 
     # generate constrained FF conformers -> first find a reasonable geometry, then you fix the stereochemistry, and then you generate conformers again!
     stereochemistry_smiles = get_stereochemistry_from_smiles(full_reactant_mol)
-
-    #i=0
-    #stereochemistry_match = False
-    #while not stereochemistry_match:
-    #    i += 1
-        #if 'conformer_init.xyz' in os.listdir():
-        #    os.remove('conformer_init.xyz')
     
     for n in range(100):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
