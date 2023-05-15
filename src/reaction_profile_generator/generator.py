@@ -20,6 +20,7 @@ from abc import ABC
 import math
 from itertools import combinations
 import random
+import re
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -80,11 +81,10 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     # construct autodE molecule object and perform constrained conformer search
     get_conformer(full_reactant_mol)
     write_xyz_file_from_mol(full_reactant_mol, 'input.xyz')
-    #TODO: stereochemistry??? -> this should be postprocessed by adding constraints like in autode!
+
     ade_mol = ade.Molecule('input.xyz', charge=charge)
     for node in ade_mol.graph.nodes:
-        ade_mol.graph.nodes[node]['stereo'] = False
-        print(ade_mol.graph.nodes[node]['stereo'])    
+        ade_mol.graph.nodes[node]['stereo'] = False    
 
     # combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
@@ -101,24 +101,28 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     ade_mol.graph.edges = bonds
 
     # generate constrained FF conformers -> first find a reasonable geometry, then you fix the stereochemistry, and then you generate conformers again!
-    stereochemistry_smiles = get_stereochemistry_from_smiles(full_reactant_mol)
+    stereochemistry_smiles_reactants = get_stereochemistry_from_smiles(full_reactant_mol)
+    #stereochemistry_smiles_products = get_stereochemistry_from_smiles(full_product_mol)
     
     for n in range(100):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
-        conformer = Conformer(name=f"conformer_init", atoms=atoms, charge=charge, dist_consts=constraints)
+        conformer = Conformer(name="conformer_init", atoms=atoms, charge=charge, dist_consts=constraints)
         write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
-        stereochemistry_xyz = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', reactant_smiles)
-        if stereochemistry_smiles == stereochemistry_xyz:
+        embedded_mol, stereochemistry_xyz_reactants = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', reactant_smiles)
+        #stereochemistry_xyz_products = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', product_smiles)
+        if stereochemistry_smiles_reactants == stereochemistry_xyz_reactants:
             break
+
+    embedded_mol = assign_cis_trans_from_geometry(embedded_mol, smiles_with_stereo=reactant_smiles)
+    write_xyz_file_from_mol(embedded_mol, "conformer_init.xyz")
 
     # fix the stereochemistry in autode -> should be done automatically! (probably not for pi bonds)
     final_ade_mol = ade.Molecule('conformer_init.xyz')
-    for node in final_ade_mol.graph.nodes:
-        print(final_ade_mol.graph.nodes[node]['stereo']) 
     
     # generate additional conformers
     conformer_xyz_files = []
     n_conf = 5
+
     for n in range(n_conf):
         atoms = conf_gen.get_simanl_atoms(species=final_ade_mol, dist_consts=constraints, conf_n=n_conf)
         conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints)
@@ -132,16 +136,18 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
 
     # Apply attractive potentials and run optimization
     for conformer in conformers_to_do:
-        for force_constant in np.arange(0.02, 0.40, 0.02):
+        for force_constant in np.arange(0.02, 0.90, 0.02):
             log_file = xtb_optimize_with_applied_potentials(conformer, formation_constraints, force_constant, charge=charge, solvent=solvent)
             energies, coords, atoms = read_energy_coords_file(log_file)
             potentials = determine_potential(coords, formation_constraints, force_constant)
+            write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], 'product_geometry_obtained.xyz')
 
             #print(energies - potentials)
-            if potentials[-1] > 0.01:
+            if potentials[-1] > 0.0001:
                 print(potentials[-1])
                 continue # means that you haven't reached the products
             else:
+                print(potentials[-1])
                 true_energy = list(energies - potentials)
                 ts_guess_index = true_energy.index(max(true_energy))
                 print(force_constant, ts_guess_index)
@@ -157,7 +163,7 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
                 break
             print(index)
 
-#TODO: include cis-trans as well; maybe product mol too?
+#TODO: maybe product mol too?
 def get_stereochemistry_from_smiles(reactant_mol):
     """
     Check if the stereochemistry is present in the reactant molecule SMILES.
@@ -165,6 +171,18 @@ def get_stereochemistry_from_smiles(reactant_mol):
     stereochemistry = Chem.FindMolChiralCenters(reactant_mol)
 
     return stereochemistry
+
+
+def find_cis_trans_elements(mol):
+    cis_trans_elements = []
+    
+    for bond in mol.GetBonds():
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            stereo = bond.GetStereo()
+            if stereo == Chem.rdchem.BondStereo.STEREOZ or stereo == Chem.rdchem.BondStereo.STEREOE:
+                cis_trans_elements.append((bond.GetBeginAtomIdx(), bond.GetEndAtomIdx(), stereo))
+
+    return cis_trans_elements
 
 
 def add_xyz_conformer(smiles, xyz_file):
@@ -200,16 +218,53 @@ def get_stereochemistry_from_xyz(xyz_file, smiles):
     no_stereo_smiles = Chem.MolToSmiles(mol)
     mol = add_xyz_conformer(no_stereo_smiles, xyz_file)
 
-    conformer = mol.GetConformer()
-    for i in range(mol.GetNumAtoms()):
-        pos = conformer.GetAtomPosition(i)
-        print(f"Atom {i+1}: {pos.x:.4f} {pos.y:.4f} {pos.z:.4f}")
+    mol.GetConformer()
 
     Chem.AssignStereochemistryFrom3D(mol)
 
     stereochemistry = Chem.FindMolChiralCenters(mol)
 
-    return stereochemistry
+    return mol, stereochemistry
+
+
+def extract_atom_map_numbers(string):
+    matches = re.findall(r'/\[[A-Za-z]+:(\d+)]', string)
+    matches += re.findall(r'\\\[[A-Za-z]+:(\d+)]', string)
+    
+    return list(map(int, matches))
+
+
+def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
+    cis_trans_elements = []
+    mol_with_stereo = Chem.MolFromSmiles(smiles_with_stereo, ps)
+    cis_trans_elements = find_cis_trans_elements(mol_with_stereo)
+    involved_atoms = extract_atom_map_numbers(smiles_with_stereo)
+
+    # Iterate through the bonds
+    for bond in mol.GetBonds():
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            atomj_idx = bond.GetBeginAtomIdx()
+            atomk_idx = bond.GetEndAtomIdx()
+
+            # Get the conformer coordinates for the atoms
+            conf = mol.GetConformer()
+            neighbors_atomj = mol.GetAtomWithIdx(atomj_idx).GetNeighbors()
+            neighbors_atomk = mol.GetAtomWithIdx(atomk_idx).GetNeighbors()
+            atomi_idx = [atom.GetIdx() for atom in neighbors_atomj if atom.GetAtomMapNum() in involved_atoms][0]
+            atoml_idx = [atom.GetIdx() for atom in neighbors_atomk if atom.GetAtomMapNum() in involved_atoms][0]
+
+            if (atomj_idx, atomk_idx, Chem.rdchem.BondStereo.STEREOZ) in cis_trans_elements:
+                angle = 0
+            elif (atomj_idx, atomk_idx, Chem.rdchem.BondStereo.STEREOE) in cis_trans_elements:
+                angle = 180
+            else:
+                raise KeyError
+
+            #print(Chem.rdMolTransforms.GetDihedralDeg(conf, atomi_idx, atomj_idx, atomk_idx, atoml_idx))
+            # get neighbors -> check sequence of atom map numbers -> find the correct one to determine the dihedral angle
+            Chem.rdMolTransforms.SetDihedralDeg(conf, atomi_idx, atomj_idx, atomk_idx, atoml_idx, angle)
+
+    return mol
 
 
 def count_negative_frequencies(filename):
@@ -317,8 +372,6 @@ def count_unique_conformers(xyz_file_paths, full_reactant_mol):
         rmsd = AllChem.GetBestRMS(molecules[i], molecules[j])
         rmsd_matrix[i, j] = rmsd
         rmsd_matrix[j, i] = rmsd
-    
-    print(rmsd_matrix)
 
     # Cluster the molecules based on their RMSD
     clusters = []
@@ -393,7 +446,7 @@ def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
     optimal_distances = {}
 
     for bond in bonds:
-        i,j = map(int, bond.split('-'))
+        i,j,_ = map(int, bond.split('-'))
         idx1, idx2 = mapnum_dict[i], mapnum_dict[j]
         if owning_mol_dict[i] == owning_mol_dict[j]:
             mol = copy.deepcopy(mols[owning_mol_dict[i]])
@@ -416,7 +469,7 @@ def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
         ade_rmol.populate_conformers(n_confs=1)
 
         ade_rmol.conformers[0].optimise(method=xtb)
-        dist_matrix = distance_matrix(ade_rmol.conformers[0]._coordinates, ade_rmol.conformers[0]._coordinates)
+        dist_matrix = distance_matrix(ade_rmol.coordinates, ade_rmol.coordinates)
         current_bond_length = dist_matrix[mol_dict[i], mol_dict[j]]
 
         optimal_distances[idx1,idx2] = current_bond_length
@@ -438,7 +491,7 @@ def get_active_bonds(reactant_mol, product_mol):
     reactant_bonds = get_bonds(reactant_mol)
     product_bonds = get_bonds(product_mol)
 
-    formed_bonds = product_bonds - reactant_bonds 
+    formed_bonds = product_bonds - reactant_bonds
     broken_bonds = reactant_bonds - product_bonds
 
     return formed_bonds, broken_bonds
@@ -449,12 +502,12 @@ def get_bonds(mol):
     for bond in mol.GetBonds():
         atom_1 = mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetAtomMapNum()
         atom_2 = mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetAtomMapNum()
-        #num_bonds = round(bond.GetBondTypeAsDouble())
+        num_bonds = round(bond.GetBondTypeAsDouble())
 
         if atom_1 < atom_2:
-            bonds.add(f'{atom_1}-{atom_2}') #-{num_bonds}')
+            bonds.add(f'{atom_1}-{atom_2}-{num_bonds}')
         else:
-            bonds.add(f'{atom_2}-{atom_1}') #-{num_bonds}')
+            bonds.add(f'{atom_2}-{atom_1}-{num_bonds}')
 
     return bonds
 
