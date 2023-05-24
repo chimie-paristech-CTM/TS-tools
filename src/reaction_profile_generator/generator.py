@@ -1,23 +1,15 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from rdkit.Geometry import Point3D
 import numpy as np
 import autode as ade
-#from rdkit.Chem import rdMolAlign
 import os
 from autode.conformers import conf_gen
 from autode.conformers import conf_gen, Conformer
 from typing import Callable
 from functools import wraps
-from autode.geom import calc_heavy_atom_rmsd
-from autode.constraints import Constraints
 from scipy.spatial import distance_matrix
 import copy
 import subprocess
-from autode.values import ValueArray
-from autode.hessians import Hessian
-from abc import ABC
-import math
 from itertools import combinations
 import random
 import re
@@ -76,7 +68,7 @@ def jointly_optimize_reactants_and_products(reactant_smiles, product_smiles, sol
     formation_constraints = get_optimal_distances(product_smiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
     breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
     formation_constraints_stretched = formation_constraints.copy()
-    formation_constraints_stretched.update((x, (2.0 + random.uniform(0, 0.1)) * y) for x,y in formation_constraints_stretched.items())
+    formation_constraints_stretched.update((x, 2.0 * y) for x,y in formation_constraints_stretched.items())
 
     # construct autodE molecule object and perform constrained conformer search
     get_conformer(full_reactant_mol)
