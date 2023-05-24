@@ -59,7 +59,7 @@ def work_in(dir_ext: str) -> Callable:
 
 
 @work_in(workdir)
-def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.02, fc_max=0.5, fc_delta=0.02):
+def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.02, fc_max=0.9, fc_delta=0.05):
     """
     Finds a transition state (TS) guess based on the given reactant and product SMILES strings.
 
@@ -135,6 +135,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
                 preliminary_ts_guess_index = get_ts_guess_index(energies, potentials)
                 break
 
+        # TODO: try to replace this by an additional optimization wherein you fix the active bond length if more than one imaginary frequency
         # If the preliminary TS guess has multiple imaginary frequencies, iterate through the next 6 optimization points
         # and select the first point that yields only 1 imaginary frequency (if all have multiple imaginary frequencies,
         # then return the preliminary guess)
@@ -147,6 +148,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
                 charge
             )
         else:
+            print(potentials[-1])
             print('No TS guess found')
             return None  # Means that no TS guess was found
 
@@ -214,7 +216,8 @@ def get_negative_frequencies(filename, charge):
         list: A list of negative frequencies.
     """
     with open('hess.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), stdout=out)
+        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
+                                   stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
     
     neg_freq = read_negative_frequencies('g98.out')
@@ -448,7 +451,7 @@ def extract_atom_map_numbers(string):
     
     return list(map(int, matches))
 
-
+# TODO: This still seems to contain an error!!!
 def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
     """
     Assign cis-trans configuration to the molecule based on the geometry.
@@ -460,12 +463,10 @@ def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
     Returns:
         object: The molecule with assigned cis-trans configuration.
     """
-    print(smiles_with_stereo)
-    raise KeyError
     cis_trans_elements = []
     mol_with_stereo = Chem.MolFromSmiles(smiles_with_stereo, ps)
     cis_trans_elements = find_cis_trans_elements(mol_with_stereo)
-    involved_atoms = extract_atom_map_numbers(smiles_with_stereo)
+    involved_atoms = extract_atom_map_numbers(smiles_with_stereo) # aren't these just the atoms of the double bond (j,k)???
 
     for bond in mol.GetBonds():
         if bond.GetBondType() == Chem.BondType.DOUBLE:
@@ -564,7 +565,7 @@ def xtb_optimize(xyz_file_path, charge=0, solvent=None):
         cmd = f'xtb {xyz_file_path} --opt --charge {charge}'
     with open(os.path.splitext(xyz_file_path)[0] + '.out', 'w') as out:
         #print(cmd)
-        process = subprocess.Popen(cmd.split(), stdout=out)
+        process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
 
     os.rename('xtbopt.xyz', f'{os.path.splitext(xyz_file_path)[0]}_optimized.xyz')
@@ -602,7 +603,7 @@ def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_const
 
     with open(os.path.splitext(xyz_file_path)[0] + '_path.out', 'w') as out:
         #print(cmd)
-        process = subprocess.Popen(cmd.split(), stdout=out)
+        process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
 
     os.rename('xtbopt.log', f'{os.path.splitext(xyz_file_path)[0]}_path.log')

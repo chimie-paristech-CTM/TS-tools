@@ -11,6 +11,13 @@ def get_smiles_strings(filename):
         smiles_strings = [line.rstrip().split()[-1] for line in lines]
     return smiles_strings
 
+def get_smiles_strings_alt():
+    return ['[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C-:1]#[O+:2].[C:3]([O:4][H:6])([H:7])([H:8])[H:10].[H:5][H:9]',
+            '[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C:1]([O:2][H:7])([C:3]([O:4][H:9])([H:8])[H:10])([H:5])[H:6]',
+            '[C:1]([C:2](=[O:3])[H:6])([H:4])([H:5])[H:7]>>[C:1](=[C:2](\[O:3][H:7])[H:6])(\[H:4])[H:5]',
+            '[C:1](=[C:2]([C:3](=[C:4](\[H:14])[H:15])\[H:16])/[H:7])(\[H:8])[H:9].[C:5](=[C:6](/[H:12])[H:13])(\[H:10])[H:11]>>[C:1](=[C:2]=[C:3]([C:4]([C:5]([C:6]([H:7])([H:12])[H:13])([H:10])[H:11])([H:14])[H:15])[H:16])([H:8])[H:9]',
+            '[H:1][C:2]([H:3])([C:4]([H:6])([H:7])[H:8])[H:5]>>[C:1]([C:2](=[O:3])[H:6])([H:4])([H:5])[H:7]']
+
 def get_ts_guess(reaction_smiles):
     ''' a function that splits up a reaction smiles in reactant and product, and then calls the function find_ts_guess with these as parameters. '''
     reactant, product = reaction_smiles.split('>>')
@@ -23,6 +30,7 @@ def confirm_ts_nature(ts_guess):
 
 if __name__ == "__main__":
     smiles_strings = get_smiles_strings('reactions_am.txt')
+    #smiles_strings = get_smiles_strings_alt()
     for smiles_string in smiles_strings[16:]:
         ts_guess = get_ts_guess(smiles_string)
         print(smiles_string, '\t', ts_guess)

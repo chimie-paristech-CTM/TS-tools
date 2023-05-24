@@ -303,6 +303,8 @@ def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
     cis_trans_elements = find_cis_trans_elements(mol_with_stereo)
     involved_atoms = extract_atom_map_numbers(smiles_with_stereo)
 
+    print(involved_atoms)
+
     # Iterate through the bonds
     for bond in mol.GetBonds():
         if bond.GetBondType() == Chem.BondType.DOUBLE:
