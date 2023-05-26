@@ -5,8 +5,6 @@ import autode as ade
 import os
 from autode.conformers import conf_gen
 from autode.conformers import conf_gen, Conformer
-from typing import Callable
-from functools import wraps
 from scipy.spatial import distance_matrix
 import copy
 import subprocess
@@ -16,49 +14,10 @@ import re
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 bohr_ang = 0.52917721090380
-workdir = 'test'
 
 xtb = ade.methods.XTB()
 
 
-def work_in(dir_ext: str) -> Callable:
-    """
-    Decorator to execute a function in a different directory.
-
-    Args:
-        dir_ext (str): Subdirectory name to create or use.
-
-    Returns:
-        Callable: Decorated function.
-    """
-
-    def func_decorator(func):
-        @wraps(func)
-        def wrapped_function(*args, **kwargs):
-
-            here = os.getcwd()
-            dir_path = os.path.join(here, dir_ext)
-
-            if not os.path.isdir(dir_path):
-                os.mkdir(dir_path)
-
-            os.chdir(dir_path)
-            try:
-                result = func(*args, **kwargs)
-            finally:
-                os.chdir(here)
-
-                if len(os.listdir(dir_path)) == 0:
-                    os.rmdir(dir_path)
-
-            return result
-
-        return wrapped_function
-
-    return func_decorator
-
-
-@work_in(workdir)
 def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.02, fc_max=0.9, fc_delta=0.05):
     """
     Finds a transition state (TS) guess based on the given reactant and product SMILES strings.
@@ -95,19 +54,37 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
     # Combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
     if len(reactant_smiles.split('.')) != 1:
-        constraints.update(formation_constraints_stretched)
+        for key, val in formation_constraints_stretched.items():
+            if key not in constraints:
+                constraints[key] = val
 
     # Generate initial optimized conformer with the correct stereochemistry
-    optimized_ade_mol = optimize_reactant_with_product_constraints(
+    optimized_ade_reactant_mol = optimize_molecule_with_extra_constraints(
         full_reactant_mol,
         reactant_smiles,
         constraints,
         charge
     )
 
-    # Generate additional conformers
+    # generate a geometry for the product and save xyz
+    breaking_constraints_stretched = breaking_constraints.copy()
+    breaking_constraints_stretched.update((x, 2.0 * y) for x, y in breaking_constraints_stretched.items())
+    product_constraints = formation_constraints.copy()
+    if len(product_smiles.split('.')) != 1:
+        for key,val in breaking_constraints_stretched.items():
+            if key not in product_constraints:
+                product_constraints[key] = val
+    _ = optimize_molecule_with_extra_constraints(
+        full_product_mol,
+        product_smiles,
+        product_constraints,
+        charge,
+        name='product'
+    )
+
+    # Generate additional conformers for the reactants
     conformers_to_do = generate_additional_conformers(
-        optimized_ade_mol,
+        optimized_ade_reactant_mol,
         full_reactant_mol,
         constraints,
         charge,
@@ -293,49 +270,50 @@ def generate_additional_conformers(optimized_ade_mol, full_reactant_mol, constra
     return conformers_to_do
 
 
-def optimize_reactant_with_product_constraints(full_reactant_mol, reactant_smiles, constraints, charge):
+def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, charge, name='reactant'):
     """
-    Optimize the reactant molecule with product constraints.
+    Optimize molecule with extra constraints.
 
     Args:
-        full_reactant_mol: The full reactant molecule.
-        reactant_smiles: SMILES representation of the reactant molecule.
+        full_mol: The full RDKIT molecule.
+        smiles: SMILES representation of the molecule.
         constraints: Constraints for optimization.
         charge: Charge value.
+        name: name to be used in generated xyz-files
 
     Returns:
         object: The optimized ADE molecule.
     """
-    get_conformer(full_reactant_mol)
-    write_xyz_file_from_mol(full_reactant_mol, 'input.xyz')
+    get_conformer(full_mol)
+    write_xyz_file_from_mol(full_mol, f'input_{name}.xyz')
 
-    ade_mol = ade.Molecule('input.xyz', charge=charge)
+    ade_mol = ade.Molecule(f'input_{name}.xyz', charge=charge)
     for node in ade_mol.graph.nodes:
         ade_mol.graph.nodes[node]['stereo'] = False
 
     bonds = []
-    for bond in full_reactant_mol.GetBonds():
+    for bond in full_mol.GetBonds():
         i, j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
         if (i, j) not in constraints and (j, i) not in constraints:
             bonds.append((i, j))
 
     ade_mol.graph.edges = bonds
 
-    stereochemistry_smiles_reactants = get_stereochemistry_from_smiles(full_reactant_mol)
+    stereochemistry_smiles_reactants = get_stereochemistry_from_smiles(full_mol)
 
     for n in range(100):
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
-        conformer = Conformer(name="conformer_init", atoms=atoms, charge=charge, dist_consts=constraints)
+        conformer = Conformer(name=f"conformer_{name}_init", atoms=atoms, charge=charge, dist_consts=constraints)
         write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
-        embedded_mol, stereochemistry_xyz_reactants = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', reactant_smiles)
+        embedded_mol, stereochemistry_xyz_reactants = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', smiles)
         if stereochemistry_smiles_reactants == stereochemistry_xyz_reactants:
             break
 
     if len(stereochemistry_smiles_reactants) != 0:
-        embedded_mol = assign_cis_trans_from_geometry(embedded_mol, smiles_with_stereo=reactant_smiles)
-        write_xyz_file_from_mol(embedded_mol, "conformer_init.xyz")
+        embedded_mol = assign_cis_trans_from_geometry(embedded_mol, smiles_with_stereo=smiles)
+        write_xyz_file_from_mol(embedded_mol, f"conformer_{name}_init.xyz")
 
-    ade_mol_optimized = ade.Molecule('conformer_init.xyz')
+    ade_mol_optimized = ade.Molecule(f'conformer_{name}_init.xyz')
 
     return ade_mol_optimized
 
