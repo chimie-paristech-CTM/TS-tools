@@ -79,7 +79,8 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
         product_smiles,
         product_constraints,
         charge,
-        name='product'
+        name='product', 
+        reordering_dict=full_reactant_dict
     )
 
     # Generate additional conformers for the reactants
@@ -269,8 +270,8 @@ def generate_additional_conformers(optimized_ade_mol, full_reactant_mol, constra
 
     return conformers_to_do
 
-
-def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, charge, name='reactant'):
+# TODO: fix final couple of lines!
+def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, charge, name='reactant', reordering_dict=None):
     """
     Optimize molecule with extra constraints.
 
@@ -285,7 +286,10 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         object: The optimized ADE molecule.
     """
     get_conformer(full_mol)
-    write_xyz_file_from_mol(full_mol, f'input_{name}.xyz')
+    if reordering_dict is not None:
+        write_xyz_file_from_mol(full_mol, f'input_{name}.xyz', reordering_dict)
+    else:
+        write_xyz_file_from_mol(full_mol, f'input_{name}.xyz')
 
     ade_mol = ade.Molecule(f'input_{name}.xyz', charge=charge)
     for node in ade_mol.graph.nodes:
@@ -293,7 +297,10 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
 
     bonds = []
     for bond in full_mol.GetBonds():
-        i, j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
+        if reordering_dict is not None:
+            i, j = reordering_dict[bond.GetBeginAtom().GetAtomMapNum()], reordering_dict[bond.GetEndAtom().GetAtomMapNum()]
+        else:
+            i, j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
         if (i, j) not in constraints and (j, i) not in constraints:
             bonds.append((i, j))
 
@@ -314,6 +321,8 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         write_xyz_file_from_mol(embedded_mol, f"conformer_{name}_init.xyz")
 
     ade_mol_optimized = ade.Molecule(f'conformer_{name}_init.xyz')
+    #ade_mol_optimized.optimise(method=ade.methods.XTB())
+    #write_xyz_file_from_ade_atoms(ade_mol_optimized, f'conformer_{name}_init.xyz')
 
     return ade_mol_optimized
 
@@ -435,7 +444,7 @@ def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
     Assign cis-trans configuration to the molecule based on the geometry.
 
     Args:
-        mol: The molecule.
+        mol: The RDKit molecule.
         smiles_with_stereo: The SMILES string with stereochemistry information.
 
     Returns:
@@ -858,22 +867,33 @@ def get_distance(coord1, coord2):
     return np.sqrt(np.sum((coord1 - coord2) ** 2))
 
 
-def write_xyz_file_from_mol(mol, filename):
+def write_xyz_file_from_mol(mol, filename, reordering_dict=None):
     """
     Write a molecule's coordinates to an XYZ file.
 
     Args:
         mol (Chem.Mol): Molecule.
         filename (str): Name of the output XYZ file.
+        reordering_dict (dict): dictionary to re-order the atoms
     """
     conformer = mol.GetConformer()
     coords = conformer.GetPositions()
+
+    atom_info = [[] for _ in range(mol.GetNumAtoms())]   
+
+    # reordering of the atoms may be needed
+    for i in range(mol.GetNumAtoms()):
+        atom = mol.GetAtomWithIdx(i)
+        symbol = atom.GetSymbol()
+        x, y, z = coords[i]
+        if reordering_dict is not None:
+            atom_info[reordering_dict[atom.GetAtomMapNum()]] = symbol, x, y, z
+        else:
+            atom_info[i] = symbol, x, y, z
 
     with open(filename, "w") as f:
         f.write(str(mol.GetNumAtoms()) + "\n")
         f.write("test \n")
         for i in range(mol.GetNumAtoms()):
-            atom = mol.GetAtomWithIdx(i)
-            symbol = atom.GetSymbol()
-            x, y, z = coords[i]
+            symbol, x, y, z = atom_info[i]
             f.write(f"{symbol} {x:.6f} {y:.6f} {z:.6f}\n")
