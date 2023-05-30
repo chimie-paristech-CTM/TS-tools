@@ -49,7 +49,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
     formation_constraints = get_optimal_distances(product_smiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
     breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
     formation_constraints_stretched = formation_constraints.copy()
-    formation_constraints_stretched.update((x, 2.0 * y) for x, y in formation_constraints_stretched.items())
+    formation_constraints_stretched.update((x, 1.5 * y) for x, y in formation_constraints_stretched.items())
 
     # Combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
@@ -68,7 +68,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
 
     # generate a geometry for the product and save xyz
     breaking_constraints_stretched = breaking_constraints.copy()
-    breaking_constraints_stretched.update((x, 2.0 * y) for x, y in breaking_constraints_stretched.items())
+    breaking_constraints_stretched.update((x, 1.5 * y) for x, y in breaking_constraints_stretched.items())
     product_constraints = formation_constraints.copy()
     if len(product_smiles.split('.')) != 1:
         for key,val in breaking_constraints_stretched.items():
@@ -147,7 +147,7 @@ def get_final_ts_guess_geometry(preliminary_ts_guess_index, atoms, coords, force
     Returns:
         str: Filename of the final TS guess geometry XYZ file.
     """
-    for index in range(preliminary_ts_guess_index, min(preliminary_ts_guess_index + 6, len(atoms))):
+    for index in range(preliminary_ts_guess_index, min(preliminary_ts_guess_index + 1, len(atoms))):
         filename = write_xyz_file_from_atoms_and_coords(
             atoms[index],
             coords[index],
@@ -321,8 +321,9 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         write_xyz_file_from_mol(embedded_mol, f"conformer_{name}_init.xyz")
 
     ade_mol_optimized = ade.Molecule(f'conformer_{name}_init.xyz')
-    #ade_mol_optimized.optimise(method=ade.methods.XTB())
-    #write_xyz_file_from_ade_atoms(ade_mol_optimized, f'conformer_{name}_init.xyz')
+    ade_mol_optimized.constraints = conformer.constraints
+    ade_mol_optimized.optimise(method=ade.methods.XTB())
+    write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'conformer_{name}_init.xyz')
 
     return ade_mol_optimized
 

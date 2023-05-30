@@ -3,6 +3,9 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from reaction_profile_generator.utils import work_in
 from reaction_profile_generator.confirm_imag_modes import confirm_imag_mode
+import time
+import os
+import shutil
 
 # TODO: sort out issue with workdir!
 workdir = ['test']
@@ -36,18 +39,40 @@ def get_ts_guess(reaction_smiles):
     
 
 if __name__ == "__main__":
-    #smiles_strings = get_smiles_strings('reactions_am.txt')
-    smiles_strings = get_smiles_strings_alt()
-    for idx, smiles_string in enumerate(smiles_strings): #[16:18]):
-        change_workdir(f'reaction_{idx}')
-        #smiles_string = smiles_strings[idx]') 
-        ts_guess = get_ts_guess(smiles_string)
-        print(smiles_string, '\t', ts_guess)
-        #try:
-        confirm_imag_mode(workdir[0], charge=0, mult=1, solvent=None)
-        #except:
-        #    print('No imag mode to confirm')
+    if 'benchmarking' in os.listdir():
+        shutil.rmtree('benchmarking')
+    os.mkdir('benchmarking')
+    os.mkdir('benchmarking/final_ts_guesses')
 
+    smiles_strings = get_smiles_strings('reactions_am.txt')
+    #smiles_strings = get_smiles_strings_alt()
+    start_time = time.time()
+    successful_reactions = []
+
+    for idx, smiles_string in enumerate(smiles_strings): #[16:18]):
+        success = False
+        for i in range(10):
+            if f'reaction_{idx}' in os.listdir('benchmarking'):
+                shutil.rmtree(f'benchmarking/reaction_{idx}')
+            change_workdir(f'benchmarking/reaction_{idx}')
+            try:
+                ts_guess = get_ts_guess(smiles_string)
+            except:
+                print('No TS guess')
+                break
+            try:
+                success = confirm_imag_mode(workdir[0])
+            except:
+                print('No imag mode to confirm')
+            if success:
+                successful_reactions.append(f'reaction_{idx}')
+                break
+        print(smiles_string, '\t', ts_guess)
+
+    end_time = time.time()
+    print(f'Successful reactions: {successful_reactions}')
+    print(f'Number of successful reactions: {len(successful_reactions)}')
+    print(f'Time taken: {end_time - start_time}')
 
     #-jointly_optimize_reactants_and_products('[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]', '[H:1][C:2]([C:3](=[O:6])[C:9]([O:8][H:7])([H:10])[H:11])([H:4])[H:5]')
     #-jointly_optimize_reactants_and_products('[C:1](=[O:2])([H:5])[H:6].[N:3]([H:4])([H:7])[H:8]', '[C:1]([O:2][N:3]([H:4])[H:8])([H:5])([H:6])[H:7]')

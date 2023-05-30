@@ -9,18 +9,17 @@ from scipy.spatial import distance_matrix
 import re
 from autode.species.species import Species
 from typing import Optional
+import shutil
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 bohr_ang = 0.52917721090380
 
-xtb = ade.methods.XTB()
+#xtb = ade.methods.XTB()
 
-def confirm_imag_mode(dir_name, charge=0, mult=1, solvent=None):
+def confirm_imag_mode(dir_name):
     reactant_file, product_file, ts_guess_file = get_xyzs(dir_name)
-    reactant, product, ts_mol = get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file)
-    active_bond_indices_forming = set(product.graph.edges) - set(reactant.graph.edges)
-    active_bond_indices_breaking = set(reactant.graph.edges) - set(product.graph.edges)    
+    reactant, product, ts_mol = get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file)   
 
     # take imaginary mode, add and reduce coordinates by this mode and then compare length of bonds -> check that it corresponds
     normal_mode, _ = read_first_normal_mode(dir_name, 'g98.out')
@@ -33,25 +32,46 @@ def confirm_imag_mode(dir_name, charge=0, mult=1, solvent=None):
 
     delta_mode = f_distances - b_distances
 
+    reac_distances = distance_matrix(reactant.coordinates, reactant.coordinates)
+    prod_distances = distance_matrix(product.coordinates, product.coordinates)
+
+    delta_reaction = reac_distances - prod_distances
+
     all_bonds = set(product.graph.edges).union(set(reactant.graph.edges))
-    active_bonds_involved_in_mode = []
-    extra_bonds_involved_in_mode = []
+    active_bonds_involved_in_mode = {}
+    extra_bonds_involved_in_mode = {}
+
+    active_bonds = set()
+    for bond in all_bonds:
+        if abs(delta_reaction[bond[0], bond[1]]) > 0.1:
+            active_bonds.add(bond)
 
     # TODO: just check that the displacement throughout the reaction is significant for active bonds (and in right direction), and small for the others
     for bond in all_bonds:
-        if bond in active_bond_indices_forming or bond in active_bond_indices_breaking: 
-            if delta_mode[bond[0], bond[1]] < 0.3:
+        if bond in active_bonds: 
+            if abs(delta_mode[bond[0], bond[1]]) < 0.3:
                 continue # small displacement
             else:
-                active_bonds_involved_in_mode.append(bond) 
+                active_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]]
         else:
-            if delta_mode[bond[0], bond[1]] < 0.4:
+            if abs(delta_mode[bond[0], bond[1]]) < 0.4:
                 continue # small displacement
             else:
-                active_bonds_involved_in_mode.append(bond) 
+                extra_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]] 
 
     print(f'Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
 
+    if len(extra_bonds_involved_in_mode) == 0 and active_bonds_involved_in_mode != 0:
+        path_name = '/'.join(dir_name.split('/')[:-1])
+        reaction_name = dir_name.split('/')[-1]
+        shutil.copy(os.path.join(dir_name, ts_guess_file), os.path.join(path_name, 'final_ts_guesses'))
+        os.rename(os.path.join(os.path.join(path_name, 'final_ts_guesses'),  ts_guess_file), 
+                      os.path.join(os.path.join(path_name, 'final_ts_guesses'), 
+                                   f'{reaction_name}_final_ts_guess.xyz'))
+        return True
+    else:
+        return False
+    
 
 def read_first_normal_mode(dir_name, filename):
     normal_mode = []
@@ -149,8 +169,8 @@ def get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file):
 
 
 def get_xyzs(dir_name):
-    reactant_file = [f for f in os.listdir(dir_name) if f == 'conformer_reactant_init.xyz'][0]
-    product_file = [f for f in os.listdir(dir_name) if f == 'conformer_product_init.xyz'][0]
+    reactant_file = [f for f in os.listdir(dir_name) if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
+    product_file = [f for f in os.listdir(dir_name) if f == 'conformer_product_init_optimised_xtb.xyz'][0]
     ts_guess_file = [f for f in os.listdir(dir_name) if f.startswith('ts_guess_')][0]
 
     return reactant_file, product_file, ts_guess_file
