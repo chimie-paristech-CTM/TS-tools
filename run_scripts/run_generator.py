@@ -1,7 +1,7 @@
 from reaction_profile_generator.generator import find_ts_guess
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from reaction_profile_generator.utils import work_in
+from reaction_profile_generator.utils import work_in, xyz_to_gaussian_input
 from reaction_profile_generator.confirm_imag_modes import confirm_imag_mode
 import time
 import os
@@ -18,7 +18,7 @@ def get_smiles_strings(filename):
     ''' a function that opens a file, reads in every line as a reaction smiles and returns them as a list. '''
     with open(filename, 'r') as f:
         lines = f.readlines()
-        smiles_strings = [line.rstrip().split()[-1] for line in lines]
+        smiles_strings = [line.rstrip().split() for line in lines]
     return smiles_strings
 
 
@@ -39,22 +39,24 @@ def get_ts_guess(reaction_smiles):
     
 
 if __name__ == "__main__":
-    if 'benchmarking' in os.listdir():
-        shutil.rmtree('benchmarking')
-    os.mkdir('benchmarking')
-    os.mkdir('benchmarking/final_ts_guesses')
+    input_file = 'reactions_am.txt'
+    target_dir = 'benchmarking'
+    if target_dir in os.listdir():
+        shutil.rmtree(target_dir)
+    os.mkdir(target_dir)
+    os.mkdir(f'{target_dir}/final_ts_guesses')
+    os.mkdir(f'{target_dir}/g16_input_files')
 
-    smiles_strings = get_smiles_strings('reactions_am.txt')
-    #smiles_strings = get_smiles_strings_alt()
+    smiles_strings = get_smiles_strings(input_file)
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in enumerate(smiles_strings): #[16:18]):
+    for idx, smiles_string in smiles_strings: #[16:18]):
         success = False
         for i in range(10):
-            if f'reaction_{idx}' in os.listdir('benchmarking'):
-                shutil.rmtree(f'benchmarking/reaction_{idx}')
-            change_workdir(f'benchmarking/reaction_{idx}')
+            if f'reaction_{idx}' in os.listdir(target_dir):
+                shutil.rmtree(f'{target_dir}/reaction_{idx}')
+            change_workdir(f'{target_dir}/reaction_{idx}')
             try:
                 ts_guess = get_ts_guess(smiles_string)
             except:
@@ -73,6 +75,12 @@ if __name__ == "__main__":
     print(f'Successful reactions: {successful_reactions}')
     print(f'Number of successful reactions: {len(successful_reactions)}')
     print(f'Time taken: {end_time - start_time}')
+
+    for file in os.listdir(f'{target_dir}/final_ts_guesses'):
+        xyz_file = os.path.join(f'{target_dir}/final_ts_guesses', file)
+        output_file = os.path.join(f'{target_dir}/g16_input_files', f'{file.split(".xyz")[0]}.com')
+        xyz_to_gaussian_input(xyz_file, output_file, )
+
 
     #-jointly_optimize_reactants_and_products('[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]', '[H:1][C:2]([C:3](=[O:6])[C:9]([O:8][H:7])([H:10])[H:11])([H:4])[H:5]')
     #-jointly_optimize_reactants_and_products('[C:1](=[O:2])([H:5])[H:6].[N:3]([H:4])([H:7])[H:8]', '[C:1]([O:2][N:3]([H:4])[H:8])([H:5])([H:6])[H:7]')

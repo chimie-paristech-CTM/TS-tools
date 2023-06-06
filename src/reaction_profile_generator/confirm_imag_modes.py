@@ -15,65 +15,96 @@ ps = Chem.SmilesParserParams()
 ps.removeHs = False
 bohr_ang = 0.52917721090380
 
-#xtb = ade.methods.XTB()
+import os
+import shutil
 
 def confirm_imag_mode(dir_name):
+    """
+    Confirm if the provided directory represents an imaginary mode.
+
+    Args:
+        dir_name (str): The directory path.
+
+    Returns:
+        bool: True if the directory represents an imaginary mode, False otherwise.
+    """
+    # Obtain reactant, product, and transition state molecules
     reactant_file, product_file, ts_guess_file = get_xyzs(dir_name)
     reactant, product, ts_mol = get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file)   
 
-    # take imaginary mode, add and reduce coordinates by this mode and then compare length of bonds -> check that it corresponds
-    normal_mode, _ = read_first_normal_mode(dir_name, 'g98.out')
-
+    # Compute the displacement along the imaginary mode
+    normal_mode, freq = read_first_normal_mode(dir_name, 'g98.out')
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
 
+    # Compute distance matrices
     f_distances = distance_matrix(f_displaced_species.coordinates, f_displaced_species.coordinates)
     b_distances = distance_matrix(b_displaced_species.coordinates, b_displaced_species.coordinates)
 
+    # Compute delta_mode
     delta_mode = f_distances - b_distances
 
+    # Compute delta_reaction
     reac_distances = distance_matrix(reactant.coordinates, reactant.coordinates)
     prod_distances = distance_matrix(product.coordinates, product.coordinates)
-
     delta_reaction = reac_distances - prod_distances
 
+    # Get all the bonds in both reactants and products
     all_bonds = set(product.graph.edges).union(set(reactant.graph.edges))
+
+    # Determine active bonds and extra bonds involved in the mode
     active_bonds_involved_in_mode = {}
     extra_bonds_involved_in_mode = {}
 
+    # Identify active bonds
     active_bonds = set()
     for bond in all_bonds:
         if abs(delta_reaction[bond[0], bond[1]]) > 0.1:
             active_bonds.add(bond)
 
-    # TODO: just check that the displacement throughout the reaction is significant for active bonds (and in right direction), and small for the others
+    print(active_bonds)
+
+    # Check bond displacements and assign involvement
     for bond in all_bonds:
         if bond in active_bonds: 
             if abs(delta_mode[bond[0], bond[1]]) < 0.3:
-                continue # small displacement
+                continue  # Small displacement, ignore
             else:
                 active_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]]
         else:
             if abs(delta_mode[bond[0], bond[1]]) < 0.4:
-                continue # small displacement
+                continue  # Small displacement, ignore
             else:
                 extra_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]] 
 
-    print(f'Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
+    print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
 
-    if len(extra_bonds_involved_in_mode) == 0 and active_bonds_involved_in_mode != 0:
+    # Copy and rename transition state guess if conditions are met
+    if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0:
         path_name = '/'.join(dir_name.split('/')[:-1])
         reaction_name = dir_name.split('/')[-1]
         shutil.copy(os.path.join(dir_name, ts_guess_file), os.path.join(path_name, 'final_ts_guesses'))
-        os.rename(os.path.join(os.path.join(path_name, 'final_ts_guesses'),  ts_guess_file), 
-                      os.path.join(os.path.join(path_name, 'final_ts_guesses'), 
-                                   f'{reaction_name}_final_ts_guess.xyz'))
+        os.rename(
+            os.path.join(os.path.join(path_name, 'final_ts_guesses'),  ts_guess_file), 
+            os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess.xyz')
+        )
         return True
     else:
         return False
     
 
 def read_first_normal_mode(dir_name, filename):
+    """
+    Read the first normal mode from the specified file.
+
+    Args:
+        dir_name (str): The directory path.
+        filename (str): The name of the file to read.
+
+    Returns:
+        numpy.ndarray: Array representing the normal mode.
+        float: Frequency value.
+    """
     normal_mode = []
     pattern = r'\s+(\d+)\s+\d+\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)'
 
@@ -161,14 +192,39 @@ def displaced_species_along_mode(
 
 
 def get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file):
+    """
+    Load the reactant, product, and transition state molecules.
+
+    Args:
+        dir_name (str): The directory path.
+        reactant_file (str): The name of the reactant file.
+        product_file (str): The name of the product file.
+        ts_guess_file (str): The name of the transition state guess file.
+
+    Returns:
+        ade.Molecule: Reactant molecule.
+        ade.Molecule: Product molecule.
+        ade.Molecule: Transition state molecule.
+    """
     reactant = ade.Molecule(os.path.join(dir_name, reactant_file))
     product = ade.Molecule(os.path.join(dir_name, product_file))
-    ts =  ade.Molecule(os.path.join(dir_name, ts_guess_file))
+    ts = ade.Molecule(os.path.join(dir_name, ts_guess_file))
 
     return reactant, product, ts
 
 
 def get_xyzs(dir_name):
+    """
+    Get the names of the reactant, product, and transition state guess files.
+
+    Args:
+        dir_name (str): The directory path.
+
+    Returns:
+        str: The name of the reactant file.
+        str: The name of the product file.
+        str: The name of the transition state guess file.
+    """
     reactant_file = [f for f in os.listdir(dir_name) if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
     product_file = [f for f in os.listdir(dir_name) if f == 'conformer_product_init_optimised_xtb.xyz'][0]
     ts_guess_file = [f for f in os.listdir(dir_name) if f.startswith('ts_guess_')][0]

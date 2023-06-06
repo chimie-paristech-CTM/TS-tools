@@ -42,7 +42,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
 
     formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol) 
 
-    # Construct dicts to translate between map numbers idxs and vice versa
+    # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
 
     # Get the constraints for the initial FF conformer search
@@ -75,7 +75,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
             if key not in product_constraints:
                 product_constraints[key] = val
     _ = optimize_molecule_with_extra_constraints(
-        full_product_mol,
+        full_reactant_mol,
         product_smiles,
         product_constraints,
         charge,

@@ -5,3 +5,6 @@ src/reaction_profile_generator/generator_old.py
 src/reaction_profile_generator/__pycache__/*
 benchmarking
 path.inp
+benchmarking_x
+
+
