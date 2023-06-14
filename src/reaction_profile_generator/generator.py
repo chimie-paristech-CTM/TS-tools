@@ -108,7 +108,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
             )
             #print(energies, coords, atoms, potentials)
             if potentials[-1] > 0.01:
-                continue  # Means that you haven't reached the products
+                continue  # Means that you haven't reached the products at the end of the biased optimization
             else:
                 preliminary_ts_guess_index = get_ts_guess_index(energies, potentials)
                 break
@@ -118,27 +118,26 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
         # and select the first point that yields only 1 imaginary frequency (if all have multiple imaginary frequencies,
         # then return the preliminary guess)
         if preliminary_ts_guess_index is not None:
-            xyz_file_final_ts_guess = get_final_ts_guess_geometry(
+            xyz_file_ts_guess = get_ts_guess_geometry(
                 preliminary_ts_guess_index,
                 atoms,
                 coords,
                 force_constant,
                 charge
             )
+            return xyz_file_ts_guess
         else:
             print(potentials[-1])
             print('No TS guess found')
             return None  # Means that no TS guess was found
 
-        return xyz_file_final_ts_guess
 
-
-def get_final_ts_guess_geometry(preliminary_ts_guess_index, atoms, coords, force_constant, charge):
+def get_ts_guess_geometry(ts_guess_index, atoms, coords, force_constant, charge):
     """
     Retrieves the final transition state (TS) guess geometry based on the given parameters.
 
     Args:
-        preliminary_ts_guess_index (int): Index of the preliminary TS guess.
+        ts_guess_index (int): Index of the preliminary TS guess.
         atoms (list): List of atom objects.
         coords (list): List of coordinate objects.
         force_constant (float): Force constant value.
@@ -147,38 +146,13 @@ def get_final_ts_guess_geometry(preliminary_ts_guess_index, atoms, coords, force
     Returns:
         str: Filename of the final TS guess geometry XYZ file.
     """
-    for index in range(preliminary_ts_guess_index, min(preliminary_ts_guess_index + 1, len(atoms))):
-        filename = write_xyz_file_from_atoms_and_coords(
-            atoms[index],
-            coords[index],
-            f'ts_guess_{force_constant}.xyz'
-        )
-        neg_freq = get_negative_frequencies(filename, charge)
-
-        if len(neg_freq) == 1:
-            return filename
-        filename = write_xyz_file_from_atoms_and_coords(
-            atoms[index],
-            coords[index],
-            f'ts_guess_{force_constant}.xyz'
-        )
-        neg_freq = get_negative_frequencies(filename, charge)
-
-        if index == preliminary_ts_guess_index:
-            neg_freq_init = neg_freq 
-
-        if len(neg_freq) == 1:
-            print(f'These are the negative frequencies found for the TS guess: {neg_freq}')
-            return filename 
-    
-    # If no exit yet, then return the geometry at the original index
-    print(f'These are the negative frequencies found for the TS guess: {neg_freq_init}')
     filename = write_xyz_file_from_atoms_and_coords(
-        atoms[preliminary_ts_guess_index],
-        coords[preliminary_ts_guess_index],
-        f'ts_guess_{force_constant}.xyz'
-    )
-
+        atoms[ts_guess_index],
+        coords[ts_guess_index],
+            f'ts_guess_{force_constant}.xyz'
+        )
+    neg_freq = get_negative_frequencies(filename, charge)
+    print(f'These are the negative frequencies found for the TS guess: {neg_freq}')
     return filename
 
 
@@ -439,7 +413,7 @@ def extract_atom_map_numbers(string):
     
     return list(map(int, matches))
 
-# TODO: This still seems to contain an error!!!
+
 def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
     """
     Assign cis-trans configuration to the molecule based on the geometry.

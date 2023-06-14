@@ -10,6 +10,8 @@ import re
 from autode.species.species import Species
 from typing import Optional
 import shutil
+from autode.constraints import Constraints
+import subprocess
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -18,7 +20,129 @@ bohr_ang = 0.52917721090380
 import os
 import shutil
 
-def confirm_imag_mode(dir_name):
+xtb = ade.methods.XTB()
+
+
+def validate_transition_state(force_constant=2, charge=0):
+    ts_guess_file, freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking = confirm_imag_mode(charge)
+    ts_mol = ade.Molecule(ts_guess_file)
+    ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
+
+    active_formed_bonds_involved_in_mode = [active_bonds_involved_in_mode[bond] for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_forming)]
+    active_broken_bonds_involved_in_mode = [active_bonds_involved_in_mode[bond] for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_breaking)]
+
+    if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0 \
+    and check_same_sign(active_formed_bonds_involved_in_mode) and check_same_sign(active_broken_bonds_involved_in_mode): 
+        print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
+        constraints = {}
+        active_bonds = active_bonds_forming.union(active_bonds_breaking) 
+        for bond in active_bonds:
+            constraints[bond] = ts_distances[bond[0], bond[1]]
+        constraints = Constraints(distance=constraints)
+        
+        xtb.force_constant = force_constant
+        constrained_ts_optimization(ts_mol, constraints)
+        new_ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
+        print(active_bonds)
+        print(ts_distances - new_ts_distances)
+        neg_freq = get_negative_frequencies('final_ts_guess.xyz', charge) ####
+        print(neg_freq) 
+        ts_guess_file_final, freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking = confirm_imag_mode(charge) ####
+        print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
+        move_final_guess_xyz(ts_guess_file_final)
+        return True
+    else:
+        return False
+
+def check_same_sign(mode_list):
+    first_sign = 0
+
+    for num in mode_list:
+        if num > 0:
+            sign = 1
+        else:
+            sign = -1
+
+        if first_sign == 0:
+            first_sign = sign
+        elif sign != 0 and sign != first_sign:
+            return False
+        
+    return True
+
+
+# TODO: deduplicate
+def get_negative_frequencies(filename, charge):
+    """
+    Executes an external program to calculate the negative frequencies for a given file.
+
+    Args:
+        filename (str): The name of the file to be processed.
+        charge (int): The charge value for the calculation.
+
+    Returns:
+        list: A list of negative frequencies.
+    """
+    with open('hess.out', 'w') as out:
+        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
+                                   stderr=subprocess.DEVNULL, stdout=out)
+        process.wait()
+    
+    neg_freq = read_negative_frequencies('g98.out')
+    return neg_freq
+
+
+def read_negative_frequencies(filename):
+    """
+    Read the negative frequencies from a file.
+
+    Args:
+        filename: The name of the file.
+
+    Returns:
+        list: The list of negative frequencies.
+    """
+    with open(filename, 'r') as file:
+        for line in file:
+            if line.strip().startswith('Frequencies --'):
+                frequencies = line.strip().split()[2:]
+                negative_frequencies = [freq for freq in frequencies if float(freq) < 0]
+                return negative_frequencies
+
+
+def constrained_ts_optimization(ts_mol, constraints):
+    ts_mol.constraints = constraints
+    ts_mol.optimise(method=xtb)
+    write_xyz_file_from_ade_atoms(ts_mol.atoms, 'final_ts_guess.xyz')
+
+
+def move_final_guess_xyz(ts_guess_file):
+    path_name = '/'.join(os.getcwd().split('/')[:-1])
+    reaction_name = os.getcwd().split('/')[-1]
+    shutil.copy(ts_guess_file, os.path.join(path_name, 'final_ts_guesses'))
+    os.rename(
+        os.path.join(os.path.join(path_name, 'final_ts_guesses'),  ts_guess_file), 
+        os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess.xyz')
+    )
+
+
+# TODO: deduplicate
+def write_xyz_file_from_ade_atoms(atoms, filename):
+    """
+    Write an XYZ file from the ADE atoms object.
+
+    Args:
+        atoms: The ADE atoms object.
+        filename: The name of the XYZ file to write.
+    """
+    with open(filename, 'w') as f:
+        f.write(str(len(atoms)) + '\n')
+        f.write('Generated by write_xyz_file()\n')
+        for atom in atoms:
+            f.write(f'{atom.atomic_symbol} {atom.coord[0]:.6f} {atom.coord[1]:.6f} {atom.coord[2]:.6f}\n')
+
+
+def confirm_imag_mode(charge):
     """
     Confirm if the provided directory represents an imaginary mode.
 
@@ -29,11 +153,11 @@ def confirm_imag_mode(dir_name):
         bool: True if the directory represents an imaginary mode, False otherwise.
     """
     # Obtain reactant, product, and transition state molecules
-    reactant_file, product_file, ts_guess_file = get_xyzs(dir_name)
-    reactant, product, ts_mol = get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file)   
+    reactant_file, product_file, ts_guess_file = get_xyzs()
+    reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_guess_file, charge)   
 
     # Compute the displacement along the imaginary mode
-    normal_mode, freq = read_first_normal_mode(dir_name, 'g98.out')
+    normal_mode, freq = read_first_normal_mode('g98.out')
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
 
@@ -57,12 +181,16 @@ def confirm_imag_mode(dir_name):
     extra_bonds_involved_in_mode = {}
 
     # Identify active bonds
+    active_bonds_forming = set()
+    active_bonds_breaking = set()
     active_bonds = set()
     for bond in all_bonds:
-        if abs(delta_reaction[bond[0], bond[1]]) > 0.1:
+        if delta_reaction[bond[0], bond[1]] > 0.1:
+            active_bonds_forming.add(bond)
             active_bonds.add(bond)
-
-    print(active_bonds)
+        if delta_reaction[bond[0], bond[1]] < -0.1:
+            active_bonds_breaking.add(bond)
+            active_bonds.add(bond)
 
     # Check bond displacements and assign involvement
     for bond in all_bonds:
@@ -77,28 +205,14 @@ def confirm_imag_mode(dir_name):
             else:
                 extra_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]] 
 
-    print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
+    return ts_guess_file, freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking
 
-    # Copy and rename transition state guess if conditions are met
-    if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0:
-        path_name = '/'.join(dir_name.split('/')[:-1])
-        reaction_name = dir_name.split('/')[-1]
-        shutil.copy(os.path.join(dir_name, ts_guess_file), os.path.join(path_name, 'final_ts_guesses'))
-        os.rename(
-            os.path.join(os.path.join(path_name, 'final_ts_guesses'),  ts_guess_file), 
-            os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess.xyz')
-        )
-        return True
-    else:
-        return False
-    
 
-def read_first_normal_mode(dir_name, filename):
+def read_first_normal_mode(filename):
     """
     Read the first normal mode from the specified file.
 
     Args:
-        dir_name (str): The directory path.
         filename (str): The name of the file to read.
 
     Returns:
@@ -109,7 +223,7 @@ def read_first_normal_mode(dir_name, filename):
     pattern = r'\s+(\d+)\s+\d+\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)'
 
     # Open the file and read its contents
-    with open(os.path.join(dir_name, filename), 'r') as file:
+    with open(filename, 'r') as file:
         lines = file.readlines()
         # Iterate over the lines and find the matching pattern
         for line in lines:
@@ -191,12 +305,11 @@ def displaced_species_along_mode(
     return disp_species
 
 
-def get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file):
+def get_ade_molecules(reactant_file, product_file, ts_guess_file, charge):
     """
     Load the reactant, product, and transition state molecules.
 
     Args:
-        dir_name (str): The directory path.
         reactant_file (str): The name of the reactant file.
         product_file (str): The name of the product file.
         ts_guess_file (str): The name of the transition state guess file.
@@ -206,27 +319,24 @@ def get_ade_molecules(dir_name, reactant_file, product_file, ts_guess_file):
         ade.Molecule: Product molecule.
         ade.Molecule: Transition state molecule.
     """
-    reactant = ade.Molecule(os.path.join(dir_name, reactant_file))
-    product = ade.Molecule(os.path.join(dir_name, product_file))
-    ts = ade.Molecule(os.path.join(dir_name, ts_guess_file))
+    reactant = ade.Molecule(reactant_file, charge=charge)
+    product = ade.Molecule(product_file, charge=charge)
+    ts = ade.Molecule(ts_guess_file, charge=charge)
 
     return reactant, product, ts
 
 
-def get_xyzs(dir_name):
+def get_xyzs():
     """
     Get the names of the reactant, product, and transition state guess files.
-
-    Args:
-        dir_name (str): The directory path.
 
     Returns:
         str: The name of the reactant file.
         str: The name of the product file.
         str: The name of the transition state guess file.
     """
-    reactant_file = [f for f in os.listdir(dir_name) if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
-    product_file = [f for f in os.listdir(dir_name) if f == 'conformer_product_init_optimised_xtb.xyz'][0]
-    ts_guess_file = [f for f in os.listdir(dir_name) if f.startswith('ts_guess_')][0]
+    reactant_file = [f for f in os.listdir() if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
+    product_file = [f for f in os.listdir() if f == 'conformer_product_init_optimised_xtb.xyz'][0]
+    ts_guess_file = [f for f in os.listdir() if f.startswith('ts_guess_')][0]
 
     return reactant_file, product_file, ts_guess_file

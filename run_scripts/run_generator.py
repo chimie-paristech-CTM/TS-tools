@@ -2,7 +2,7 @@ from reaction_profile_generator.generator import find_ts_guess
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from reaction_profile_generator.utils import work_in, xyz_to_gaussian_input
-from reaction_profile_generator.confirm_imag_modes import confirm_imag_mode
+from reaction_profile_generator.confirm_imag_modes import validate_transition_state
 import time
 import os
 import shutil
@@ -36,7 +36,14 @@ def get_ts_guess(reaction_smiles):
     reactant, product = reaction_smiles.split('>>')
     ts_guess = find_ts_guess(reactant, product)
     return ts_guess
-    
+
+@work_in(workdir)
+def validate_ts():
+    ''' '''
+    success = validate_transition_state()
+
+    return success
+
 
 if __name__ == "__main__":
     input_file = 'reactions_am.txt'
@@ -51,7 +58,7 @@ if __name__ == "__main__":
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in smiles_strings: #[16:18]):
+    for idx, smiles_string in smiles_strings[:2]: #[16:18]):
         success = False
         for i in range(10):
             if f'reaction_{idx}' in os.listdir(target_dir):
@@ -62,10 +69,10 @@ if __name__ == "__main__":
             except:
                 print('No TS guess')
                 break
-            try:
-                success = confirm_imag_mode(workdir[0])
-            except:
-                print('No imag mode to confirm')
+            #try:
+            success = validate_ts()
+            #except:
+            #    print('No imag mode to confirm')
             if success:
                 successful_reactions.append(f'reaction_{idx}')
                 break
