@@ -1,108 +1,60 @@
 from rdkit import Chem
+from rdkit.Chem import AllChem
 import numpy as np
 import autode as ade
 import os
+from functools import wraps
+from scipy.spatial import distance_matrix
 from scipy.spatial import distance_matrix
 import re
 from autode.species.species import Species
 from typing import Optional
 import shutil
+from autode.constraints import Constraints
+import subprocess
 
-from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
+ps = Chem.SmilesParserParams()
+ps.removeHs = False
+bohr_ang = 0.52917721090380
+
+import os
+import shutil
 
 xtb = ade.methods.XTB()
 
 
-def validate_transition_state(ts_file, charge=0, final=False):
-    """
-    Validates a transition state by performing various checks on the provided parameters.
-
-    Args:
-        ts_file (str): The name of the TS file.
-        charge (int): The charge of the reacting system. Defaults to 0.
-
-    Returns:
-        bool: True if the transition state is valid, False otherwise.
-    """
-
-    freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, \
-    active_bonds_forming, active_bonds_breaking, reac_distances, prod_distances = confirm_imag_mode(ts_file, charge)
-
-    ts_mol = ade.Molecule(ts_file)
+def validate_transition_state(force_constant=2, charge=0):
+    ts_guess_file, freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking = confirm_imag_mode(charge)
+    ts_mol = ade.Molecule(ts_guess_file)
     ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
 
-    active_formed_bonds_involved_in_mode = [
-        active_bonds_involved_in_mode[bond]
-        for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_forming)
-    ]
-    active_broken_bonds_involved_in_mode = [
-        active_bonds_involved_in_mode[bond]
-        for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_breaking)
-    ]
-
-    print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
-
-    # Check that at least one active bond is getting displaced in mode,
-    # check that all broken and formed bonds in the active mode move in the same direction,
-    # and that the bond lengths are intermediate between reactants and products.
-    #bond_lengths_intermediate = check_if_bond_lengths_intermediate(
-    #    ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking
-    #)
-    bond_lengths_intermediate = True # TODO: Fix this!
+    active_formed_bonds_involved_in_mode = [active_bonds_involved_in_mode[bond] for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_forming)]
+    active_broken_bonds_involved_in_mode = [active_bonds_involved_in_mode[bond] for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_breaking)]
 
     if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0 \
-    and check_same_sign(active_formed_bonds_involved_in_mode) \
-    and check_same_sign(active_broken_bonds_involved_in_mode) and bond_lengths_intermediate:
-        if final:
-            move_final_guess_xyz(ts_file)
+    and check_same_sign(active_formed_bonds_involved_in_mode) and check_same_sign(active_broken_bonds_involved_in_mode): 
+        print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
+        constraints = {}
+        active_bonds = active_bonds_forming.union(active_bonds_breaking) 
+        for bond in active_bonds:
+            constraints[bond] = ts_distances[bond[0], bond[1]]
+        constraints = Constraints(distance=constraints)
+        
+        xtb.force_constant = force_constant
+        #constrained_ts_optimization(ts_mol, constraints)
+        #new_ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
+        print(active_bonds)
+        #print(ts_distances - new_ts_distances)
+        neg_freq = get_negative_frequencies(ts_guess_file, charge) ####
+        print(neg_freq) 
+        #ts_guess_file_final, freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking = confirm_imag_mode(charge) ####
+        #print(f'Main imaginary frequency: {freq} Active bonds in mode: {active_bonds_involved_in_mode};  Extra bonds in mode: {extra_bonds_involved_in_mode}')
+        move_final_guess_xyz(ts_guess_file)
         return True
     else:
         return False
 
-# TODO: you may want to express this in terms of covalent radii (see Jensen)
-def check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking):
-    """
-    Checks if the bond lengths in the transition state are intermediate between reactants and products.
-
-    Args:
-        ts_distances (numpy.ndarray): Distance matrix of the transition state.
-        reac_distances (numpy.ndarray): Distance matrix of the reactants.
-        prod_distances (numpy.ndarray): Distance matrix of the products.
-        active_bonds_forming (list): List of active bonds involved in bond formation.
-        active_bonds_breaking (list): List of active bonds involved in bond breaking.
-
-    Returns:
-        bool: True if the bond lengths are intermediate, False otherwise.
-    """
-
-    for active_bond in active_bonds_forming:
-        if ts_distances[active_bond[0], active_bond[1]] <= prod_distances[active_bond[0], active_bond[1]] * 1.01:
-            print(active_bond, ts_distances[active_bond[0], active_bond[1]], reac_distances[active_bond[0], active_bond[1]])
-            return False
-        else:
-            continue
-    
-    for active_bond in active_bonds_breaking:
-        if ts_distances[active_bond[0], active_bond[1]] <= reac_distances[active_bond[0], active_bond[1]] * 1.01:
-            print(active_bond, ts_distances[active_bond[0], active_bond[1]], reac_distances[active_bond[0], active_bond[1]])
-            return False
-        else:
-            continue
-    
-    return True
-
-
 def check_same_sign(mode_list):
-    """
-    Checks if all numbers in the given list have the same sign.
-
-    Args:
-        mode_list (list): List of numbers.
-
-    Returns:
-        bool: True if all numbers have the same sign, False otherwise.
-    """
-
     first_sign = 0
 
     for num in mode_list:
@@ -119,44 +71,78 @@ def check_same_sign(mode_list):
     return True
 
 
-def constrained_ts_optimization(ts_mol, constraints):
+# TODO: deduplicate
+def get_negative_frequencies(filename, charge):
     """
-    Performs a constrained optimization of the transition state molecule.
+    Executes an external program to calculate the negative frequencies for a given file.
 
     Args:
-        ts_mol (ade.Molecule): The transition state molecule.
-        constraints (list): List of constraints to apply during optimization.
+        filename (str): The name of the file to be processed.
+        charge (int): The charge value for the calculation.
 
     Returns:
-        None
+        list: A list of negative frequencies.
     """
+    with open('hess.out', 'w') as out:
+        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
+                                   stderr=subprocess.DEVNULL, stdout=out)
+        process.wait()
+    
+    neg_freq = read_negative_frequencies('g98.out')
+    return neg_freq
 
+
+def read_negative_frequencies(filename):
+    """
+    Read the negative frequencies from a file.
+
+    Args:
+        filename: The name of the file.
+
+    Returns:
+        list: The list of negative frequencies.
+    """
+    with open(filename, 'r') as file:
+        for line in file:
+            if line.strip().startswith('Frequencies --'):
+                frequencies = line.strip().split()[2:]
+                negative_frequencies = [freq for freq in frequencies if float(freq) < 0]
+                return negative_frequencies
+
+
+def constrained_ts_optimization(ts_mol, constraints):
     ts_mol.constraints = constraints
     ts_mol.optimise(method=xtb)
     write_xyz_file_from_ade_atoms(ts_mol.atoms, 'final_ts_guess.xyz')
 
 
 def move_final_guess_xyz(ts_guess_file):
-    """
-    Moves the final transition state guess XYZ file to a designated folder and renames it.
-
-    Args:
-        ts_guess_file (str): Path to the transition state guess XYZ file.
-
-    Returns:
-        None
-    """
-
     path_name = '/'.join(os.getcwd().split('/')[:-1])
     reaction_name = os.getcwd().split('/')[-1]
     shutil.copy(ts_guess_file, os.path.join(path_name, 'final_ts_guesses'))
     os.rename(
-        os.path.join(os.path.join(path_name, 'final_ts_guesses'), ts_guess_file), 
+        os.path.join(os.path.join(path_name, 'final_ts_guesses'),  ts_guess_file), 
         os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess.xyz')
     )
 
 
-def confirm_imag_mode(ts_file, charge):
+# TODO: deduplicate
+def write_xyz_file_from_ade_atoms(atoms, filename):
+    """
+    Write an XYZ file from the ADE atoms object.
+
+    Args:
+        atoms: The ADE atoms object.
+        filename: The name of the XYZ file to write.
+    """
+    with open(filename, 'w') as f:
+        f.write(str(len(atoms)) + '\n')
+        f.write('Generated by write_xyz_file()\n')
+        for atom in atoms:
+            f.write(f'{atom.atomic_symbol} {atom.coord[0]:.6f} {atom.coord[1]:.6f} {atom.coord[2]:.6f}\n')
+
+
+def confirm_imag_mode(charge):
     """
     Confirm if the provided directory represents an imaginary mode.
 
@@ -167,8 +153,8 @@ def confirm_imag_mode(ts_file, charge):
         bool: True if the directory represents an imaginary mode, False otherwise.
     """
     # Obtain reactant, product, and transition state molecules
-    reactant_file, product_file = get_xyzs()
-    reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_file, charge)   
+    reactant_file, product_file, ts_guess_file = get_xyzs()
+    reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_guess_file, charge)   
 
     # Compute the displacement along the imaginary mode
     normal_mode, freq = read_first_normal_mode('g98.out')
@@ -219,7 +205,7 @@ def confirm_imag_mode(ts_file, charge):
             else:
                 extra_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]] 
 
-    return freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking, reac_distances, prod_distances
+    return ts_guess_file, freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking
 
 
 def read_first_normal_mode(filename):
@@ -351,5 +337,6 @@ def get_xyzs():
     """
     reactant_file = [f for f in os.listdir() if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
     product_file = [f for f in os.listdir() if f == 'conformer_product_init_optimised_xtb.xyz'][0]
+    ts_guess_file = [f for f in os.listdir() if f.startswith('ts_guess_')][0]
 
-    return reactant_file, product_file
+    return reactant_file, product_file, ts_guess_file

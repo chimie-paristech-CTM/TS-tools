@@ -10,15 +10,19 @@ import copy
 import subprocess
 from itertools import combinations
 import re
+import random
+
+from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 bohr_ang = 0.52917721090380
 
 xtb = ade.methods.XTB()
+xtb.force_constant = 2
 
 
-def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.02, fc_max=0.9, fc_delta=0.05):
+def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.05, fc_max=0.9, fc_delta=0.10):
     """
     Finds a transition state (TS) guess based on the given reactant and product SMILES strings.
 
@@ -27,9 +31,9 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
         product_smiles (str): SMILES string of the product.
         solvent (str, optional): Solvent to consider during calculations. Defaults to None.
         n_conf (int, optional): Number of additional conformers to generate. Defaults to 5.
-        fc_min (float, optional): Minimum force constant value. Defaults to 0.02.
-        fc_max (float, optional): Maximum force constant value. Defaults to 0.2.
-        fc_delta (float, optional): Increment value for force constant. Defaults to 0.02.
+        fc_min (float, optional): Minimum force constant value. Defaults to 0.05.
+        fc_max (float, optional): Maximum force constant value. Defaults to 0.9.
+        fc_delta (float, optional): Increment value for force constant. Defaults to 0.10.
 
     Returns:
         None
@@ -45,11 +49,12 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
     # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
 
-    # Get the constraints for the initial FF conformer search
+    # Get the constraints for the initial FF conformer search -- randomize the distances for the constraints somewhat to sample diverse configurations
     formation_constraints = get_optimal_distances(product_smiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
     breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
+    formation_bonds_to_stretch = set(formation_constraints.keys()) - set(breaking_constraints.keys())
     formation_constraints_stretched = formation_constraints.copy()
-    formation_constraints_stretched.update((x, 1.5 * y) for x, y in formation_constraints_stretched.items())
+    formation_constraints_stretched.update((x, random.uniform(1.8, 2.5) * y) for x,y in formation_constraints_stretched.items() if x in formation_bonds_to_stretch)
 
     # Combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
@@ -66,21 +71,24 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
         charge
     )
 
-    # generate a geometry for the product and save xyz
+    # generate a geometry for the product and save xyz -- randomize the distances for the constraints somewhat to sample diverse configurations
+    breaking_bonds_to_stretch = set(breaking_constraints.keys()) - set(formation_constraints.keys())
     breaking_constraints_stretched = breaking_constraints.copy()
-    breaking_constraints_stretched.update((x, 1.5 * y) for x, y in breaking_constraints_stretched.items())
+    breaking_constraints_stretched.update((x, random.uniform(1.8, 2.5) * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
     product_constraints = formation_constraints.copy()
     if len(product_smiles.split('.')) != 1:
         for key,val in breaking_constraints_stretched.items():
             if key not in product_constraints:
                 product_constraints[key] = val
+
     _ = optimize_molecule_with_extra_constraints(
         full_reactant_mol,
         product_smiles,
         product_constraints,
         charge,
         name='product', 
-        reordering_dict=full_reactant_dict
+        reordering_dict=full_reactant_dict,
+        extra_constraints=breaking_constraints
     )
 
     # Generate additional conformers for the reactants
@@ -113,10 +121,6 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
                 preliminary_ts_guess_index = get_ts_guess_index(energies, potentials)
                 break
 
-        # TODO: try to replace this by an additional optimization wherein you fix the active bond length if more than one imaginary frequency
-        # If the preliminary TS guess has multiple imaginary frequencies, iterate through the next 6 optimization points
-        # and select the first point that yields only 1 imaginary frequency (if all have multiple imaginary frequencies,
-        # then return the preliminary guess)
         if preliminary_ts_guess_index is not None:
             xyz_file_ts_guess = get_ts_guess_geometry(
                 preliminary_ts_guess_index,
@@ -125,6 +129,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
                 force_constant,
                 charge
             )
+            run_hessian_calc(xyz_file_ts_guess, charge)
             return xyz_file_ts_guess
         else:
             print(potentials[-1])
@@ -151,29 +156,9 @@ def get_ts_guess_geometry(ts_guess_index, atoms, coords, force_constant, charge)
         coords[ts_guess_index],
             f'ts_guess_{force_constant}.xyz'
         )
-    neg_freq = get_negative_frequencies(filename, charge)
-    print(f'These are the negative frequencies found for the TS guess: {neg_freq}')
+    #neg_freq = get_negative_frequencies(filename, charge)
+    #print(f'These are the negative frequencies found for the TS guess: {neg_freq}')
     return filename
-
-
-def get_negative_frequencies(filename, charge):
-    """
-    Executes an external program to calculate the negative frequencies for a given file.
-
-    Args:
-        filename (str): The name of the file to be processed.
-        charge (int): The charge value for the calculation.
-
-    Returns:
-        list: A list of negative frequencies.
-    """
-    with open('hess.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
-        process.wait()
-    
-    neg_freq = read_negative_frequencies('g98.out')
-    return neg_freq
 
 
 def get_ts_guess_index(energies, potentials):
@@ -244,8 +229,8 @@ def generate_additional_conformers(optimized_ade_mol, full_reactant_mol, constra
 
     return conformers_to_do
 
-# TODO: fix final couple of lines!
-def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, charge, name='reactant', reordering_dict=None):
+# TODO: fix this!
+def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, charge, name='reactant', reordering_dict=None, extra_constraints=None):
     """
     Optimize molecule with extra constraints.
 
@@ -255,6 +240,7 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         constraints: Constraints for optimization.
         charge: Charge value.
         name: name to be used in generated xyz-files
+        extra_constraints: undefined product constraints where there shouldn't be a bond
 
     Returns:
         object: The optimized ADE molecule.
@@ -276,7 +262,11 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         else:
             i, j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
         if (i, j) not in constraints and (j, i) not in constraints:
-            bonds.append((i, j))
+            if extra_constraints != None:
+                if (i,j) not in extra_constraints and (j,i) not in extra_constraints:
+                    bonds.append((i, j))
+            else:
+                bonds.append((i, j))
 
     ade_mol.graph.edges = bonds
 
@@ -294,12 +284,32 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         embedded_mol = assign_cis_trans_from_geometry(embedded_mol, smiles_with_stereo=smiles)
         write_xyz_file_from_mol(embedded_mol, f"conformer_{name}_init.xyz")
 
-    ade_mol_optimized = ade.Molecule(f'conformer_{name}_init.xyz')
+    ade_mol_optimized = ade.Molecule(f'conformer_{name}_init.xyz', charge=charge)
+
+    xtb_constraints = get_xtb_constraints(ade_mol_optimized, constraints)
+    conformer.constraints.update(xtb_constraints)
+
     ade_mol_optimized.constraints = conformer.constraints
     ade_mol_optimized.optimise(method=ade.methods.XTB())
     write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'conformer_{name}_init.xyz')
 
     return ade_mol_optimized
+
+
+def get_xtb_constraints(ade_mol_optimized, constraints):
+    """ """
+    xtb_constraints = dict()
+    dist_matrix = distance_matrix(ade_mol_optimized.atoms.coordinates, ade_mol_optimized.atoms.coordinates)
+    active_atoms = set()
+    for x,y in constraints.keys():
+        active_atoms.add(x)
+        active_atoms.add(y)
+    for atom1 in list(active_atoms):
+        for atom2 in list(active_atoms):
+            if atom1 < atom2:
+                xtb_constraints[(atom1, atom2)] = dist_matrix[atom1, atom2]
+    
+    return xtb_constraints
 
 
 #TODO: maybe product mol too?
@@ -453,39 +463,6 @@ def assign_cis_trans_from_geometry(mol, smiles_with_stereo):
             Chem.rdMolTransforms.SetDihedralDeg(conf, atomi_idx, atomj_idx, atomk_idx, atoml_idx, angle)
 
     return mol
-
-
-def read_negative_frequencies(filename):
-    """
-    Read the negative frequencies from a file.
-
-    Args:
-        filename: The name of the file.
-
-    Returns:
-        list: The list of negative frequencies.
-    """
-    with open(filename, 'r') as file:
-        for line in file:
-            if line.strip().startswith('Frequencies --'):
-                frequencies = line.strip().split()[2:]
-                negative_frequencies = [freq for freq in frequencies if float(freq) < 0]
-                return negative_frequencies
-
-
-def write_xyz_file_from_ade_atoms(atoms, filename):
-    """
-    Write an XYZ file from the ADE atoms object.
-
-    Args:
-        atoms: The ADE atoms object.
-        filename: The name of the XYZ file to write.
-    """
-    with open(filename, 'w') as f:
-        f.write(str(len(atoms)) + '\n')
-        f.write('Generated by write_xyz_file()\n')
-        for atom in atoms:
-            f.write(f'{atom.atomic_symbol} {atom.coord[0]:.6f} {atom.coord[1]:.6f} {atom.coord[2]:.6f}\n')
 
 
 def write_xyz_file_from_atoms_and_coords(atoms, coords, filename='ts_guess.xyz'):
@@ -872,3 +849,11 @@ def write_xyz_file_from_mol(mol, filename, reordering_dict=None):
         for i in range(mol.GetNumAtoms()):
             symbol, x, y, z = atom_info[i]
             f.write(f"{symbol} {x:.6f} {y:.6f} {z:.6f}\n")
+
+
+# TODO: clean this up!
+def run_hessian_calc(filename, charge):
+    with open('hess.out', 'w') as out:
+        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
+                                   stderr=subprocess.DEVNULL, stdout=out)
+        process.wait()

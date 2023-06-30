@@ -6,6 +6,7 @@ from reaction_profile_generator.confirm_imag_modes import validate_transition_st
 import time
 import os
 import shutil
+from reaction_profile_generator.refine_ts import refine_ts
 
 # TODO: sort out issue with workdir!
 workdir = ['test']
@@ -23,27 +24,38 @@ def get_smiles_strings(filename):
 
 
 def get_smiles_strings_alt():
-    return ['[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C-:1]#[O+:2].[C:3]([O:4][H:6])([H:7])([H:8])[H:10].[H:5][H:9]',
-            '[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C:1]([O:2][H:7])([C:3]([O:4][H:9])([H:8])[H:10])([H:5])[H:6]',
-            '[C:1]([C:2](=[O:3])[H:6])([H:4])([H:5])[H:7]>>[C:1](=[C:2](\[O:3][H:7])[H:6])(\[H:4])[H:5]',
-            '[C:1](=[C:2]([C:3](=[C:4](\[H:14])[H:15])\[H:16])/[H:7])(\[H:8])[H:9].[C:5](=[C:6](/[H:12])[H:13])(\[H:10])[H:11]>>[C:1](=[C:2]=[C:3]([C:4]([C:5]([C:6]([H:7])([H:12])[H:13])([H:10])[H:11])([H:14])[H:15])[H:16])([H:8])[H:9]',
-            '[H:1][C:2]([H:3])([C:4]([H:6])([H:7])[H:8])[H:5]>>[H:1]/[C:2]([H:3])=[C:4](/[H:7])[H:8].[H:5][H:6]']
-
+    #return ['[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C-:1]#[O+:2].[C:3]([O:4][H:6])([H:7])([H:8])[H:10].[H:5][H:9]',
+    #        '[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C:1]([O:2][H:7])([C:3]([O:4][H:9])([H:8])[H:10])([H:5])[H:6]',
+    #        '[C:1]([C:2](=[O:3])[H:6])([H:4])([H:5])[H:7]>>[C:1](=[C:2](\[O:3][H:7])[H:6])(\[H:4])[H:5]',
+    #        '[C:1](=[C:2]([C:3](=[C:4](\[H:14])[H:15])\[H:16])/[H:7])(\[H:8])[H:9].[C:5](=[C:6](/[H:12])[H:13])(\[H:10])[H:11]>>[C:1](=[C:2]=[C:3]([C:4]([C:5]([C:6]([H:7])([H:12])[H:13])([H:10])[H:11])([H:14])[H:15])[H:16])([H:8])[H:9]',
+    #        '[H:1][C:2]([H:3])([C:4]([H:6])([H:7])[H:8])[H:5]>>[H:1]/[C:2]([H:3])=[C:4](/[H:7])[H:8].[H:5][H:6]']
+    return [['R1','[C:1]#[C:2].[C:3]#[C:4].[C:5]#[C:6]>>[C:1]1=[C:2][C:3]=[C:4][C:5]=[C:6]1'],
+            ['R2','[H:8][C:1]#[N:2].[H:7][C:3]#[N:4].[C-:5]#[N:6]>>[C-:3]#[N:4].[C:1](=[N:2][H:7])([C:5]#[N:6])[H:8]']]
 
 @work_in(workdir)
 def get_ts_guess(reaction_smiles):
     ''' a function that splits up a reaction smiles in reactant and product, and then calls the function find_ts_guess with these as parameters. '''
     reactant, product = reaction_smiles.split('>>')
-    ts_guess = find_ts_guess(reactant, product)
+    ts_guess = find_ts_guess(reactant, product, solvent='water')
     return ts_guess
 
+
 @work_in(workdir)
-def validate_ts():
+def validate_ts(ts_file, charge, final):
     ''' '''
-    success = validate_transition_state()
+    success = validate_transition_state(ts_file, charge, final)
 
     return success
 
+@work_in(workdir)
+def improve_ts():
+    ''' '''
+    refined_ts = refine_ts()
+    if refined_ts == None:
+        return None
+    shutil.move(refined_ts, 'final_ts_guess.xyz')
+
+    return 'final_ts_guess.xyz'
 
 if __name__ == "__main__":
     input_file = 'reactions_am.txt'
@@ -55,12 +67,13 @@ if __name__ == "__main__":
     os.mkdir(f'{target_dir}/g16_input_files')
 
     smiles_strings = get_smiles_strings(input_file)
+    #smiles_strings = get_smiles_strings_alt()
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in smiles_strings[:2]: #[16:18]):
+    for idx, smiles_string in smiles_strings[:4]: #[16:18]):
         success = False
-        for i in range(10):
+        for i in range(40):
             if f'reaction_{idx}' in os.listdir(target_dir):
                 shutil.rmtree(f'{target_dir}/reaction_{idx}')
             change_workdir(f'{target_dir}/reaction_{idx}')
@@ -68,14 +81,17 @@ if __name__ == "__main__":
                 ts_guess = get_ts_guess(smiles_string)
             except:
                 print('No TS guess')
-                break
             #try:
-            success = validate_ts()
+            if validate_ts(ts_guess, 0, final=False):
+                improved_ts = improve_ts()
+                if improved_ts == None:
+                    continue
+                if validate_ts(improved_ts, 0, final=True):
+                    successful_reactions.append(f'reaction_{idx}')
+                    break
             #except:
             #    print('No imag mode to confirm')
-            if success:
-                successful_reactions.append(f'reaction_{idx}')
-                break
+
         print(smiles_string, '\t', ts_guess)
 
     end_time = time.time()
@@ -86,7 +102,7 @@ if __name__ == "__main__":
     for file in os.listdir(f'{target_dir}/final_ts_guesses'):
         xyz_file = os.path.join(f'{target_dir}/final_ts_guesses', file)
         output_file = os.path.join(f'{target_dir}/g16_input_files', f'{file.split(".xyz")[0]}.com')
-        xyz_to_gaussian_input(xyz_file, output_file, )
+        xyz_to_gaussian_input(xyz_file, output_file)
 
 
     #-jointly_optimize_reactants_and_products('[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]', '[H:1][C:2]([C:3](=[O:6])[C:9]([O:8][H:7])([H:10])[H:11])([H:4])[H:5]')
