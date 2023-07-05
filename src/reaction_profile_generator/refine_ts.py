@@ -47,19 +47,25 @@ def refine_ts(charge=0):
     sorted_bonds = sorted(displacements.keys(), key=lambda k: displacements[k], reverse=True)
 
     for bond in sorted_bonds:
-        #print(bond, reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]])
+        print(bond, reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]])
         energies = []
         xyz_file_names = []
 
-        for i in range(-5,5):
+        print(np.linspace(max(min(
+            reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 1), \
+            min(max(reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 5), 10))
+
+        for distance in np.linspace(max(min(
+            reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 1), \
+            min(max(reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 5), 10): #range(-5,5):
             ts_tmp = ade.Molecule(ts_guess_file, charge=charge)
-            ts_tmp.constraints.update({bond: ts_distances[bond[0], bond[1]] + 0.1 * i})
-            ts_tmp.name = f'ts_scan_{i}'
+            ts_tmp.constraints.update({bond: distance})
+            ts_tmp.name = f'ts_scan_{distance}'
             ts_tmp.optimise(xtb)
             energies.append(ts_tmp.energy)
             xyz_file_names.append(ts_tmp.name)
 
-        #print(energies)
+        print(energies)
         # determine the maximum -> TODO: FIT PARABOLA
         for i in range(1, len(energies)-1):
             if energies[i] > energies[i+1] and energies[i] > energies[i-1]:

@@ -54,7 +54,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
     breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
     formation_bonds_to_stretch = set(formation_constraints.keys()) - set(breaking_constraints.keys())
     formation_constraints_stretched = formation_constraints.copy()
-    formation_constraints_stretched.update((x, random.uniform(1.8, 2.5) * y) for x,y in formation_constraints_stretched.items() if x in formation_bonds_to_stretch)
+    formation_constraints_stretched.update((x, random.uniform(1.1, 1.3) * y) for x,y in formation_constraints_stretched.items() if x in formation_bonds_to_stretch)
 
     # Combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
@@ -74,7 +74,7 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
     # generate a geometry for the product and save xyz -- randomize the distances for the constraints somewhat to sample diverse configurations
     breaking_bonds_to_stretch = set(breaking_constraints.keys()) - set(formation_constraints.keys())
     breaking_constraints_stretched = breaking_constraints.copy()
-    breaking_constraints_stretched.update((x, random.uniform(1.8, 2.5) * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
+    breaking_constraints_stretched.update((x, random.uniform(1.1, 1.3) * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
     product_constraints = formation_constraints.copy()
     if len(product_smiles.split('.')) != 1:
         for key,val in breaking_constraints_stretched.items():

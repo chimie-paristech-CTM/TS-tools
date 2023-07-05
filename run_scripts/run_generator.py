@@ -29,8 +29,10 @@ def get_smiles_strings_alt():
     #        '[C:1]([C:2](=[O:3])[H:6])([H:4])([H:5])[H:7]>>[C:1](=[C:2](\[O:3][H:7])[H:6])(\[H:4])[H:5]',
     #        '[C:1](=[C:2]([C:3](=[C:4](\[H:14])[H:15])\[H:16])/[H:7])(\[H:8])[H:9].[C:5](=[C:6](/[H:12])[H:13])(\[H:10])[H:11]>>[C:1](=[C:2]=[C:3]([C:4]([C:5]([C:6]([H:7])([H:12])[H:13])([H:10])[H:11])([H:14])[H:15])[H:16])([H:8])[H:9]',
     #        '[H:1][C:2]([H:3])([C:4]([H:6])([H:7])[H:8])[H:5]>>[H:1]/[C:2]([H:3])=[C:4](/[H:7])[H:8].[H:5][H:6]']
-    return [['R1','[C:1]#[C:2].[C:3]#[C:4].[C:5]#[C:6]>>[C:1]1=[C:2][C:3]=[C:4][C:5]=[C:6]1'],
-            ['R2','[H:8][C:1]#[N:2].[H:7][C:3]#[N:4].[C-:5]#[N:6]>>[C-:3]#[N:4].[C:1](=[N:2][H:7])([C:5]#[N:6])[H:8]']]
+    #return [['R1','[C:1]#[C:2].[C:3]#[C:4].[C:5]#[C:6]>>[C:1]1=[C:2][C:3]=[C:4][C:5]=[C:6]1'],
+    #        ['R2','[H:8][C:1]#[N:2].[H:7][C:3]#[N:4].[C-:5]#[N:6]>>[C-:3]#[N:4].[C:1](=[N:2][H:7])([C:5]#[N:6])[H:8]']]
+    return [['R1','[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]>>[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]'],
+            ['R2','[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]>>[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]']]
 
 @work_in(workdir)
 def get_ts_guess(reaction_smiles):
@@ -66,12 +68,12 @@ if __name__ == "__main__":
     os.mkdir(f'{target_dir}/final_ts_guesses')
     os.mkdir(f'{target_dir}/g16_input_files')
 
-    smiles_strings = get_smiles_strings(input_file)
-    #smiles_strings = get_smiles_strings_alt()
+    #smiles_strings = get_smiles_strings(input_file)
+    smiles_strings = get_smiles_strings_alt()
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in smiles_strings[:4]: #[16:18]):
+    for idx, smiles_string in smiles_strings: #[20:23]: #[16:18]):
         success = False
         for i in range(40):
             if f'reaction_{idx}' in os.listdir(target_dir):
@@ -87,8 +89,10 @@ if __name__ == "__main__":
                 if improved_ts == None:
                     continue
                 if validate_ts(improved_ts, 0, final=True):
+                    raise KeyError
                     successful_reactions.append(f'reaction_{idx}')
                     break
+                raise KeyError
             #except:
             #    print('No imag mode to confirm')
 

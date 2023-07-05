@@ -52,7 +52,7 @@ def validate_transition_state(ts_file, charge=0, final=False):
 
     if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0 \
     and check_same_sign(active_formed_bonds_involved_in_mode) \
-    and check_same_sign(active_broken_bonds_involved_in_mode) and bond_lengths_intermediate:
+    and check_same_sign(active_broken_bonds_involved_in_mode) and bond_lengths_intermediate and freq < -50:
         if final:
             move_final_guess_xyz(ts_file)
         return True
