@@ -15,64 +15,13 @@ xtb = ade.methods.XTB()
 xtb.force_constant = 10
 
 
-def refine_ts(charge=0):
-    # get bond length reactant and product
-    # compare active bond lengths in TS structure with optimal bond lengths R and P
-    # take most activated bond and perform relaxed scan starting from guess geometry 
-    # do freq calculation of the approximate maximum along the scan direction
+def refine_ts(reaction_path_gradient, charge=0):
+    # get plane orthogonal to path gradient
+    # compute actual gradient of the molecule (by running --grad; cf. https://xtb-docs.readthedocs.io/en/latest/commandline.html)
+    # project the gradient in the perpendicular plane and do again
+    # the most rigorous explanation found is here: https://pubs.aip.org/aip/jcp/article-abstract/94/1/751/98598/Reaction-path-study-of-helix-formation-in?redirectedFrom=fulltext
 
-    # Obtain reactant, product, and transition state molecules
-    reactant_file, product_file, ts_guess_file = get_xyzs()
-    reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_guess_file, charge)   
-
-    # Compute interatom distances for reactant, product and TS
-    reac_distances = distance_matrix(reactant.coordinates, reactant.coordinates)
-    prod_distances = distance_matrix(product.coordinates, product.coordinates)
-    delta_reaction = reac_distances - prod_distances
-    ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
-
-    # Get all the bonds in both reactants and products
-    all_bonds = set(product.graph.edges).union(set(reactant.graph.edges))
-
-    displacements = {}
-    for bond in all_bonds:
-        if abs(delta_reaction[bond[0], bond[1]]) > 0.5:
-            displacement = min(
-                ts_distances[bond[0], bond[1]] - min(reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]),
-                max(reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]) - ts_distances[bond[0], bond[1]]
-            )
-            #print(bond, delta_reaction[bond[0], bond[1]], displacement)
-            displacements[bond] = displacement
-
-    sorted_bonds = sorted(displacements.keys(), key=lambda k: displacements[k], reverse=True)
-
-    for bond in sorted_bonds:
-        print(bond, reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]])
-        energies = []
-        xyz_file_names = []
-
-        print(np.linspace(max(min(
-            reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 1), \
-            min(max(reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 5), 10))
-
-        for distance in np.linspace(max(min(
-            reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 1), \
-            min(max(reac_distances[bond[0], bond[1]], prod_distances[bond[0], bond[1]]), 5), 10): #range(-5,5):
-            ts_tmp = ade.Molecule(ts_guess_file, charge=charge)
-            ts_tmp.constraints.update({bond: distance})
-            ts_tmp.name = f'ts_scan_{distance}'
-            ts_tmp.optimise(xtb)
-            energies.append(ts_tmp.energy)
-            xyz_file_names.append(ts_tmp.name)
-
-        print(energies)
-        # determine the maximum -> TODO: FIT PARABOLA
-        for i in range(1, len(energies)-1):
-            if energies[i] > energies[i+1] and energies[i] > energies[i-1]:
-                get_negative_frequencies(f'{xyz_file_names[i]}_optimised_xtb.xyz', charge)
-                return f'{xyz_file_names[i]}_optimised_xtb.xyz'
-            else:
-                continue
+    _, _, ts_guess_file = get_xyzs()
     
     return None
 

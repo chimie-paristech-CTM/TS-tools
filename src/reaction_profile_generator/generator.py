@@ -129,13 +129,26 @@ def find_ts_guess(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_mi
                 force_constant,
                 charge
             )
+            gradient = get_gradient_reaction_path(
+                preliminary_ts_guess_index,
+                atoms,
+                coords)
             run_hessian_calc(xyz_file_ts_guess, charge)
-            return xyz_file_ts_guess
+            return xyz_file_ts_guess, gradient
         else:
             print(potentials[-1])
             print('No TS guess found')
-            return None  # Means that no TS guess was found
+            return None, None  # Means that no TS guess was found
 
+
+def get_gradient_reaction_path(ts_guess_index, atoms, coords):
+    """ """
+    gradient = coords[ts_guess_index] - coords[ts_guess_index + 1]
+    #norms = np.linalg.norm(gradient, axis=1)
+    #norms_reshaped = norms.reshape(-1, 1)
+    #gradient = gradient/norms_reshaped
+    # print(coords[ts_guess_index-1] - coords[ts_guess_index])
+    return gradient
 
 def get_ts_guess_geometry(ts_guess_index, atoms, coords, force_constant, charge):
     """
