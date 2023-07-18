@@ -50,9 +50,9 @@ def validate_ts(ts_file, charge, final):
     return success
 
 @work_in(workdir)
-def improve_ts(gradient):
+def improve_ts():
     ''' '''
-    refined_ts = refine_ts(gradient)
+    refined_ts = refine_ts()
     if refined_ts == None:
         return None
     shutil.move(refined_ts, 'final_ts_guess.xyz')
@@ -81,12 +81,12 @@ if __name__ == "__main__":
                 shutil.rmtree(f'{target_dir}/reaction_{idx}')
             change_workdir(f'{target_dir}/reaction_{idx}')
             #try:
-            ts_guess, gradient = get_ts_guess(smiles_string)
+            ts_guess = get_ts_guess(smiles_string)
             #except:
             #    print('No TS guess')
             #try:
             if validate_ts(ts_guess, 0, final=False):
-                improved_ts = improve_ts(gradient)
+                improved_ts = improve_ts()
                 if improved_ts == None:
                     continue
                 if validate_ts(improved_ts, 0, final=True):
