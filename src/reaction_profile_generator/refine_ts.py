@@ -15,10 +15,28 @@ xtb = ade.methods.XTB()
 xtb.force_constant = 10
 
 
-def refine_ts(charge=0):
-    # get projection of gradient in plane orthogonal to first normal mode
-    # move coordinates and do again
+def relax_path(xyz_files, charge=0):
+    # get projection of energy gradient in plane orthogonal to path gradient
+    # move coordinates downhill in energy and repeat
     # the most rigorous explanation found is here: https://pubs.aip.org/aip/jcp/article-abstract/94/1/751/98598/Reaction-path-study-of-helix-formation-in?redirectedFrom=fulltext
+
+
+    for i in range(5):
+        print(' ')
+        for j, file in enumerate(xyz_files[:-1]):
+            coordinates, element_types = get_coordinates(file)
+            coordinates_next, _ = get_coordinates(xyz_files[j+1])
+
+            path_gradient = coordinates - coordinates_next
+            energy_gradient, energy = get_gradient(file, charge)
+            projections = calculate_projections(path_gradient, energy_gradient)
+            coordinates = coordinates - projections
+            write_xyz_file(file, element_types, coordinates)
+            print(j, energy)
+            neg_freq = get_negative_frequencies(file, charge)
+            print(neg_freq)
+
+    raise KeyError
 
     _, _, ts_guess_file = get_xyzs()
     coordinates, element_types = get_coordinates(ts_guess_file)

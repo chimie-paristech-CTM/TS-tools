@@ -6,7 +6,7 @@ from reaction_profile_generator.confirm_imag_modes import validate_transition_st
 import time
 import os
 import shutil
-from reaction_profile_generator.refine_ts import refine_ts
+from reaction_profile_generator.refine_ts import relax_path
 
 # TODO: sort out issue with workdir!
 workdir = ['test']
@@ -35,11 +35,11 @@ def get_smiles_strings_alt():
             ['R2','[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]>>[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]']]
 
 @work_in(workdir)
-def get_ts_guess(reaction_smiles):
+def get_path(reaction_smiles):
     ''' a function that splits up a reaction smiles in reactant and product, and then calls the function find_ts_guess with these as parameters. '''
     reactant, product = reaction_smiles.split('>>')
-    ts_guess = find_ts_guess(reactant, product, solvent='water')
-    return ts_guess
+    path_xyz_files, ts_guess_index = find_ts_guess(reactant, product) #, solvent='water')
+    return path_xyz_files, ts_guess_index
 
 
 @work_in(workdir)
@@ -50,12 +50,13 @@ def validate_ts(ts_file, charge, final):
     return success
 
 @work_in(workdir)
-def improve_ts():
+def refine_path(path_xyz_files):
     ''' '''
-    refined_ts = refine_ts()
-    if refined_ts == None:
-        return None
-    shutil.move(refined_ts, 'final_ts_guess.xyz')
+    refined_path = relax_path(path_xyz_files)
+    raise KeyError
+    #if refined_ts == None:
+    #    return None
+    #shutil.move(refined_ts, 'final_ts_guess.xyz')
 
     return 'final_ts_guess.xyz'
 
@@ -69,24 +70,24 @@ if __name__ == "__main__":
     os.mkdir(f'{target_dir}/final_ts_guesses')
     os.mkdir(f'{target_dir}/g16_input_files')
 
-    #smiles_strings = get_smiles_strings(input_file)
-    smiles_strings = get_smiles_strings_alt()
+    smiles_strings = get_smiles_strings(input_file)
+    #smiles_strings = get_smiles_strings_alt()
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in smiles_strings: #[20:23]: #[16:18]):
+    for idx, smiles_string in smiles_strings[1:3]: #[20:23]: #[16:18]):
         success = False
         for i in range(40):
             if f'reaction_{idx}' in os.listdir(target_dir):
                 shutil.rmtree(f'{target_dir}/reaction_{idx}')
             change_workdir(f'{target_dir}/reaction_{idx}')
             #try:
-            ts_guess = get_ts_guess(smiles_string)
+            path_xyzs, ts_guess_index = get_path(smiles_string)
             #except:
             #    print('No TS guess')
             #try:
-            if validate_ts(ts_guess, 0, final=False):
-                improved_ts = improve_ts()
+            if validate_ts(path_xyzs[ts_guess_index], 0, final=False):
+                improved_ts = refine_path(path_xyzs)
                 if improved_ts == None:
                     continue
                 if validate_ts(improved_ts, 0, final=True):
@@ -97,7 +98,7 @@ if __name__ == "__main__":
             #except:
             #    print('No imag mode to confirm')
 
-        print(smiles_string, '\t', ts_guess)
+        print(smiles_string, '\t', path_xyzs[ts_guess_index])
 
     end_time = time.time()
     print(f'Successful reactions: {successful_reactions}')
