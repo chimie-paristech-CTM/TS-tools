@@ -20,9 +20,9 @@ def relax_path(xyz_files, charge=0):
     # move coordinates downhill in energy and repeat
     # the most rigorous explanation found is here: https://pubs.aip.org/aip/jcp/article-abstract/94/1/751/98598/Reaction-path-study-of-helix-formation-in?redirectedFrom=fulltext
 
+    final_energies_dict = {}
 
-    for i in range(5):
-        print(' ')
+    for i in range(10):
         for j, file in enumerate(xyz_files[:-1]):
             coordinates, element_types = get_coordinates(file)
             coordinates_next, _ = get_coordinates(xyz_files[j+1])
@@ -30,42 +30,36 @@ def relax_path(xyz_files, charge=0):
             path_gradient = coordinates - coordinates_next
             energy_gradient, energy = get_gradient(file, charge)
             projections = calculate_projections(path_gradient, energy_gradient)
-            coordinates = coordinates - projections
+            coordinates = coordinates - projections * 0.4
             write_xyz_file(file, element_types, coordinates)
-            print(j, energy)
-            neg_freq = get_negative_frequencies(file, charge)
-            print(neg_freq)
+            if i == 9:
+                print(j, energy)
+                final_energies_dict[energy] = j
 
-    raise KeyError
+    sorted_energies = sorted(final_energies_dict.keys(), reverse=True)
 
-    _, _, ts_guess_file = get_xyzs()
-    coordinates, element_types = get_coordinates(ts_guess_file)
-    normal_mode, freq = read_first_normal_mode('g98.out')
+    lowest_mode_ratio = 1 # ratio between first and second imaginary mode
 
-    write_xyz_file('lup.xyz', element_types, coordinates)
-    for i in range(10):
-        print(i)
-        gradient, energy = get_gradient('lup.xyz', charge)
-        print(gradient)
-        print('')
-        projections = calculate_projections(normal_mode, gradient)
-        coordinates = coordinates - projections * 0.1
-        write_xyz_file('lup.xyz', element_types, coordinates)
-        print(energy)
-        neg_freq = get_negative_frequencies('lup.xyz', charge)
-        #normal_mode, freq = read_first_normal_mode('g98.out')
-        #print(normal_mode)
-        print(neg_freq)
-
-    raise KeyError
-    for i in range(5):
-        coordinates = coordinates + normal_mode * 0.4
-        write_xyz_file('lup.xyz', element_types, coordinates)
-        neg_freq = get_negative_frequencies('lup.xyz', charge)
-        normal_mode, freq = read_first_normal_mode('g98.out')
-        print(neg_freq)
-
-    raise KeyError
+    for i, energy in enumerate(sorted_energies):
+        neg_freq = get_negative_frequencies(xyz_files[final_energies_dict[energy]], charge)
+        #raise KeyError
+        print(i, energy, neg_freq)
+        if len(neg_freq) == 1:
+            print(final_energies_dict[energy], energy, neg_freq)
+            return xyz_files[final_energies_dict[energy]]
+        elif len(neg_freq) == 0:
+            continue
+        else:
+            current_mode_ratio = float(neg_freq[1])/float(neg_freq[0])
+            print(neg_freq, current_mode_ratio)
+            if current_mode_ratio < lowest_mode_ratio:
+                lowest_mode_ratio = current_mode_ratio
+                id_best_guess = final_energies_dict[energy]
+            i += 1
+        if i > 6:
+            break
+        
+    return xyz_files[id_best_guess]
 
 
 def write_xyz_file(filename, elements, coordinates):

@@ -52,11 +52,11 @@ def validate_ts(ts_file, charge, final):
 @work_in(workdir)
 def refine_path(path_xyz_files):
     ''' '''
-    refined_path = relax_path(path_xyz_files)
-    raise KeyError
-    #if refined_ts == None:
-    #    return None
-    #shutil.move(refined_ts, 'final_ts_guess.xyz')
+    refined_ts = relax_path(path_xyz_files)
+    #raise KeyError
+    if refined_ts == None:
+        return None
+    shutil.move(refined_ts, 'final_ts_guess.xyz')
 
     return 'final_ts_guess.xyz'
 
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in smiles_strings[1:3]: #[20:23]: #[16:18]):
+    for idx, smiles_string in smiles_strings[:15]: #[20:23]: #[16:18]):
         success = False
         for i in range(40):
             if f'reaction_{idx}' in os.listdir(target_dir):
