@@ -151,7 +151,7 @@ def move_final_guess_xyz(ts_guess_file):
     reaction_name = os.getcwd().split('/')[-1]
     shutil.copy(ts_guess_file, os.path.join(path_name, 'final_ts_guesses'))
     os.rename(
-        os.path.join(os.path.join(path_name, 'final_ts_guesses'), ts_guess_file), 
+        os.path.join(os.path.join(path_name, 'final_ts_guesses'), ts_guess_file.split('/')[-1]), 
         os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess.xyz')
     )
 

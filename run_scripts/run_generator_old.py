@@ -1,11 +1,12 @@
-from reaction_profile_generator.get_path import get_path
-from reaction_profile_generator.relax_path import relax_path
+from reaction_profile_generator.generator import find_ts_guess
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from reaction_profile_generator.utils import work_in, xyz_to_gaussian_input
+from reaction_profile_generator.confirm_imag_modes import validate_transition_state
 import time
 import os
 import shutil
+from reaction_profile_generator.refine_ts import relax_path
 
 # TODO: sort out issue with workdir!
 workdir = ['test']
@@ -23,23 +24,41 @@ def get_smiles_strings(filename):
 
 
 def get_smiles_strings_alt():
+    #return ['[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C-:1]#[O+:2].[C:3]([O:4][H:6])([H:7])([H:8])[H:10].[H:5][H:9]',
+    #        '[C:1](=[O:2])([H:5])[H:6].[C:3]([O:4][H:9])([H:7])([H:8])[H:10]>>[C:1]([O:2][H:7])([C:3]([O:4][H:9])([H:8])[H:10])([H:5])[H:6]',
+    #        '[C:1]([C:2](=[O:3])[H:6])([H:4])([H:5])[H:7]>>[C:1](=[C:2](\[O:3][H:7])[H:6])(\[H:4])[H:5]',
+    #        '[C:1](=[C:2]([C:3](=[C:4](\[H:14])[H:15])\[H:16])/[H:7])(\[H:8])[H:9].[C:5](=[C:6](/[H:12])[H:13])(\[H:10])[H:11]>>[C:1](=[C:2]=[C:3]([C:4]([C:5]([C:6]([H:7])([H:12])[H:13])([H:10])[H:11])([H:14])[H:15])[H:16])([H:8])[H:9]',
+    #        '[H:1][C:2]([H:3])([C:4]([H:6])([H:7])[H:8])[H:5]>>[H:1]/[C:2]([H:3])=[C:4](/[H:7])[H:8].[H:5][H:6]']
+    #return [['R1','[C:1]#[C:2].[C:3]#[C:4].[C:5]#[C:6]>>[C:1]1=[C:2][C:3]=[C:4][C:5]=[C:6]1'],
+    #        ['R2','[H:8][C:1]#[N:2].[H:7][C:3]#[N:4].[C-:5]#[N:6]>>[C-:3]#[N:4].[C:1](=[N:2][H:7])([C:5]#[N:6])[H:8]']]
     return [['R1','[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]>>[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]'],
             ['R2','[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]>>[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]']]
 
 @work_in(workdir)
-def run_path_search(reaction_smiles):
+def get_path(reaction_smiles):
     ''' a function that splits up a reaction smiles in reactant and product, and then calls the function find_ts_guess with these as parameters. '''
     reactant, product = reaction_smiles.split('>>')
-    path_xyz_files = get_path(reactant, product) #, solvent='water')
+    path_xyz_files, ts_guess_index = find_ts_guess(reactant, product) #, solvent='water')
+    return path_xyz_files, ts_guess_index
 
-    return path_xyz_files
 
 @work_in(workdir)
-def run_path_relaxation(xyz_files):
+def validate_ts(ts_file, charge, final):
     ''' '''
-    path_xyz_files = relax_path(xyz_files) #, solvent='water')
+    success = validate_transition_state(ts_file, charge, final)
 
-    return path_xyz_files
+    return success
+
+@work_in(workdir)
+def refine_path(path_xyz_files):
+    ''' '''
+    refined_ts = relax_path(path_xyz_files)
+    #raise KeyError
+    if refined_ts == None:
+        return None
+    shutil.move(refined_ts, 'final_ts_guess.xyz')
+
+    return 'final_ts_guess.xyz'
 
 
 if __name__ == "__main__":
@@ -56,27 +75,30 @@ if __name__ == "__main__":
     start_time = time.time()
     successful_reactions = []
 
-    for idx, smiles_string in smiles_strings: #[20:23]: #[16:18]):
-        for i in range(10):
-            # if directory already exists, then replace it
+    for idx, smiles_string in smiles_strings[:3]: #[20:23]: #[16:18]):
+        success = False
+        for i in range(40):
             if f'reaction_{idx}' in os.listdir(target_dir):
                 shutil.rmtree(f'{target_dir}/reaction_{idx}')
             change_workdir(f'{target_dir}/reaction_{idx}')
-            try:
-                path_xyzs = run_path_search(smiles_string)
-                ts_guess = run_path_relaxation(path_xyzs)
-                if ts_guess is not None:
-                    break
-                else: 
+            #try:
+            path_xyzs, ts_guess_index = get_path(smiles_string)
+            #except:
+            #    print('No TS guess')
+            #try:
+            if validate_ts(path_xyzs[ts_guess_index], 0, final=False):
+                improved_ts = refine_path(path_xyzs)
+                if improved_ts == None:
                     continue
-            except:
-                continue
-        
-        if ts_guess is not None:
-            print(f'TS for {smiles_string}: {ts_guess}')
-            successful_reactions.append(f'reaction_{idx}')
-        else:
-            print(f'No TS found for {smiles_string}')
+                if validate_ts(improved_ts, 0, final=True):
+                    #raise KeyError
+                    successful_reactions.append(f'reaction_{idx}')
+                    break
+            #    raise KeyError
+            #except:
+            #    print('No imag mode to confirm')
+
+        print(smiles_string, '\t', path_xyzs[ts_guess_index])
 
     end_time = time.time()
     print(f'Successful reactions: {successful_reactions}')
