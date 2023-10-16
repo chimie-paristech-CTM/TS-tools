@@ -10,6 +10,7 @@ import shutil
 # TODO: sort out issue with workdir!
 workdir = ['test']
 
+
 def change_workdir(new_name):
     workdir[0] = new_name
 
@@ -23,20 +24,22 @@ def get_smiles_strings(filename):
 
 
 def get_smiles_strings_alt():
-    return [['R1','[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]>>[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]'],
-            ['R2','[H:1][N:2]([H:3])[O:7][C:6]([H:4])([H:5])[H:8]>>[H:1][N:2]([H:3])[H:4].[H:5][C:6](=[O:7])[H:8]']]
+    return [#['R73','[C:1](=[C:2]([C:3](=[C:4](\[H:14])[H:15])\[H:16])/[H:7])(\[H:8])[H:9].[C:5](=[C:6](/[H:12])[H:13])(\[H:10])[H:11]>>[C:1]1([H:8])([H:9])[C:2]([H:7])=[C:3]([H:16])[C:4]([H:14])([H:15])[C:6]([H:12])([H:13])[C:5]1([H:10])[H:11]'],
+        ['R74','[C@:1]1([C:5]([H:11])([H:12])[H:13])([H:7])[C:2]([H:8])=[C:3]([H:9])[C@@:4]1([C:6]([H:14])([H:15])[H:16])[H:10]>>[C:1](=[C:2]([C:3](=[C:4](/[C:6]([H:14])([H:15])[H:16])[H:10])/[H:9])\[H:8])(\[C:5]([H:11])([H:12])[H:13])[H:7]']]
+
 
 @work_in(workdir)
 def run_path_search(reaction_smiles):
-    ''' a function that splits up a reaction smiles in reactant and product, and then calls the function find_ts_guess with these as parameters. '''
+    ''' a function that splits up a reaction smiles in reactant and product, and then calls the function get_path with these as parameters. '''
     reactant, product = reaction_smiles.split('>>')
     path_xyz_files = get_path(reactant, product) #, solvent='water')
 
     return path_xyz_files
 
+
 @work_in(workdir)
 def run_path_relaxation(xyz_files):
-    ''' '''
+    ''' a function that takes in the list of xyz-files of a path and then relaxes the path by calling the relax_path method. '''
     path_xyz_files = relax_path(xyz_files) #, solvent='water')
 
     return path_xyz_files
@@ -44,19 +47,20 @@ def run_path_relaxation(xyz_files):
 
 if __name__ == "__main__":
     input_file = 'reactions_am.txt'
-    target_dir = 'benchmarking'
+    target_dir = 'benchmarkingxxxxxxxxxxx'
     if target_dir in os.listdir():
         shutil.rmtree(target_dir)
     os.mkdir(target_dir)
     os.mkdir(f'{target_dir}/final_ts_guesses')
     os.mkdir(f'{target_dir}/g16_input_files')
 
-    smiles_strings = get_smiles_strings(input_file)
-    #smiles_strings = get_smiles_strings_alt()
+    #smiles_strings = get_smiles_strings(input_file)
+    smiles_strings = get_smiles_strings_alt()
     start_time = time.time()
     successful_reactions = []
 
     for idx, smiles_string in smiles_strings: #[20:23]: #[16:18]):
+        ts_guess = None
         for i in range(10):
             # if directory already exists, then replace it
             if f'reaction_{idx}' in os.listdir(target_dir):

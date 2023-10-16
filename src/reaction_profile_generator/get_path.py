@@ -46,6 +46,12 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
 
     formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol) 
 
+    # if more bonds are broken than formed, then reverse the reaction
+    if len(formed_bonds) < len(broken_bonds):
+        full_reactant_mol = Chem.MolFromSmiles(product_smiles, ps)
+        full_product_mol = Chem.MolFromSmiles(reactant_smiles, ps)
+        formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol)
+
     # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
 
@@ -107,7 +113,6 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
     inactive_bond_mask = get_inactive_bond_mask(inactive_bonds, len(optimized_ade_reactant_mol.coordinates), full_reactant_dict)
     masked_dist_mat = 1.1 * dist_mat * inactive_bond_mask
 
-    
     # Apply attractive potentials and run optimization
     for conformer in conformers_to_do:
         # Find the minimal force constant yielding the product upon application of the formation constraints
@@ -329,6 +334,7 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         write_xyz_file_from_mol(full_mol, f'input_{name}.xyz')
 
     ade_mol = ade.Molecule(f'input_{name}.xyz', charge=charge)
+
     for node in ade_mol.graph.nodes:
         ade_mol.graph.nodes[node]['stereo'] = False
 
