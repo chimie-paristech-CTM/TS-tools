@@ -8,28 +8,31 @@ from autode.species.species import Species
 from typing import Optional
 import shutil
 
-from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
-
 xtb = ade.methods.XTB()
 
 
-def validate_transition_state(ts_file, charge=0, final=False):
+def validate_transition_state(ts_file, prod_distances, reac_distances, factor=1.05, charge=0, final=False):
     """
     Validates a transition state by performing various checks on the provided parameters.
 
     Args:
         ts_file (str): The name of the TS file.
+        formed_bonds ():
+        broken_bonds ():
         charge (int): The charge of the reacting system. Defaults to 0.
 
     Returns:
         bool: True if the transition state is valid, False otherwise.
     """
-
+    
+    # get all information about main imaginary mode
     freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, \
-    active_bonds_forming, active_bonds_breaking, reac_distances, prod_distances = confirm_imag_mode(ts_file, charge)
+    active_bonds_forming, active_bonds_breaking = confirm_imag_mode(ts_file, charge)
 
+    # get distances in the transition state
     ts_mol = ade.Molecule(ts_file)
     ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
+
 
     active_formed_bonds_involved_in_mode = [
         active_bonds_involved_in_mode[bond]
@@ -48,7 +51,9 @@ def validate_transition_state(ts_file, charge=0, final=False):
     #bond_lengths_intermediate = check_if_bond_lengths_intermediate(
     #    ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking
     #)
-    bond_lengths_intermediate = True # TODO: Fix this!
+    bond_lengths_intermediate = check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distances, 
+                                                                    active_bonds_forming, active_bonds_breaking, factor)
+    # TODO: Fix this!
 
     if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0 \
     and check_same_sign(active_formed_bonds_involved_in_mode) \
@@ -59,8 +64,8 @@ def validate_transition_state(ts_file, charge=0, final=False):
     else:
         return False
 
-# TODO: you may want to express this in terms of covalent radii (see Jensen)
-def check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking):
+
+def check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking, factor):
     """
     Checks if the bond lengths in the transition state are intermediate between reactants and products.
 
@@ -68,22 +73,23 @@ def check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distan
         ts_distances (numpy.ndarray): Distance matrix of the transition state.
         reac_distances (numpy.ndarray): Distance matrix of the reactants.
         prod_distances (numpy.ndarray): Distance matrix of the products.
-        active_bonds_forming (list): List of active bonds involved in bond formation.
-        active_bonds_breaking (list): List of active bonds involved in bond breaking.
+        active_bonds_forming (set): Set of active bonds involved in bond formation.
+        active_bonds_breaking (set): Set of active bonds involved in bond breaking.
+        factor (float): Multiplication factor to apply to the equilibrium bond lengths for activation check.
 
     Returns:
         bool: True if the bond lengths are intermediate, False otherwise.
     """
 
     for active_bond in active_bonds_forming:
-        if ts_distances[active_bond[0], active_bond[1]] <= prod_distances[active_bond[0], active_bond[1]] * 1.01:
-            print(active_bond, ts_distances[active_bond[0], active_bond[1]], reac_distances[active_bond[0], active_bond[1]])
+        if ts_distances[active_bond[0], active_bond[1]] < prod_distances[active_bond[0], active_bond[1]] * factor:
+            print(active_bond, ts_distances[active_bond[0], active_bond[1]], prod_distances[active_bond[0], active_bond[1]])
             return False
         else:
             continue
     
     for active_bond in active_bonds_breaking:
-        if ts_distances[active_bond[0], active_bond[1]] <= reac_distances[active_bond[0], active_bond[1]] * 1.01:
+        if ts_distances[active_bond[0], active_bond[1]] < reac_distances[active_bond[0], active_bond[1]] * factor:
             print(active_bond, ts_distances[active_bond[0], active_bond[1]], reac_distances[active_bond[0], active_bond[1]])
             return False
         else:
@@ -119,23 +125,6 @@ def check_same_sign(mode_list):
     return True
 
 
-def constrained_ts_optimization(ts_mol, constraints):
-    """
-    Performs a constrained optimization of the transition state molecule.
-
-    Args:
-        ts_mol (ade.Molecule): The transition state molecule.
-        constraints (list): List of constraints to apply during optimization.
-
-    Returns:
-        None
-    """
-
-    ts_mol.constraints = constraints
-    ts_mol.optimise(method=xtb)
-    write_xyz_file_from_ade_atoms(ts_mol.atoms, 'final_ts_guess.xyz')
-
-
 def move_final_guess_xyz(ts_guess_file):
     """
     Moves the final transition state guess XYZ file to a designated folder and renames it.
@@ -161,7 +150,7 @@ def confirm_imag_mode(ts_file, charge):
     Confirm if the provided directory represents an imaginary mode.
 
     Args:
-        dir_name (str): The directory path.
+        ...
 
     Returns:
         bool: True if the directory represents an imaginary mode, False otherwise.
@@ -182,44 +171,32 @@ def confirm_imag_mode(ts_file, charge):
     # Compute delta_mode
     delta_mode = f_distances - b_distances
 
-    # Compute delta_reaction
-    reac_distances = distance_matrix(reactant.coordinates, reactant.coordinates)
-    prod_distances = distance_matrix(product.coordinates, product.coordinates)
-    delta_reaction = reac_distances - prod_distances
-
     # Get all the bonds in both reactants and products
     all_bonds = set(product.graph.edges).union(set(reactant.graph.edges))
+
+    # Identify active forming and breaking bonds
+    active_bonds_forming = set(product.graph.edges).difference(set(reactant.graph.edges))
+    active_bonds_breaking = set(reactant.graph.edges).difference(set(product.graph.edges))
+    active_bonds = active_bonds_forming.union(active_bonds_breaking)
 
     # Determine active bonds and extra bonds involved in the mode
     active_bonds_involved_in_mode = {}
     extra_bonds_involved_in_mode = {}
 
-    # Identify active bonds
-    active_bonds_forming = set()
-    active_bonds_breaking = set()
-    active_bonds = set()
-    for bond in all_bonds:
-        if delta_reaction[bond[0], bond[1]] > 0.1:
-            active_bonds_forming.add(bond)
-            active_bonds.add(bond)
-        if delta_reaction[bond[0], bond[1]] < -0.1:
-            active_bonds_breaking.add(bond)
-            active_bonds.add(bond)
-
     # Check bond displacements and assign involvement
     for bond in all_bonds:
         if bond in active_bonds: 
-            if abs(delta_mode[bond[0], bond[1]]) < 0.3:
+            if abs(delta_mode[bond[0], bond[1]]) < 0.5:
                 continue  # Small displacement, ignore
             else:
                 active_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]]
         else:
-            if abs(delta_mode[bond[0], bond[1]]) < 0.4:
+            if abs(delta_mode[bond[0], bond[1]]) < 0.5:
                 continue  # Small displacement, ignore
             else:
                 extra_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]] 
 
-    return freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking, reac_distances, prod_distances
+    return freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking
 
 
 def read_first_normal_mode(filename):

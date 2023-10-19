@@ -10,7 +10,37 @@ xtb = ade.methods.XTB()
 xtb.force_constant = 10
 
 
-def relax_path(xyz_files, charge=0):
+def generate_ts_guess(xyz_files, formation_constraints, breaking_constraints, charge=0):
+    """ """
+
+    final_energies_dict, sorted_energies = relax_path(xyz_files, charge)
+
+    lowest_mode_ratio = 1 # ratio between first and second imaginary mode
+
+    for f in [1.05, 1.005]:
+        for i, energy in enumerate(sorted_energies):
+            neg_freq = get_negative_frequencies(xyz_files[final_energies_dict[energy]], charge)
+            if len(neg_freq) == 1:
+                if validate_transition_state(xyz_files[final_energies_dict[energy]], formation_constraints, breaking_constraints, factor=f, charge=0, final=True):
+                    return xyz_files[final_energies_dict[energy]]
+                else:
+                    continue
+            elif len(neg_freq) == 0:
+                continue
+            else:
+                current_mode_ratio = float(neg_freq[1])/float(neg_freq[0])
+                if validate_transition_state(xyz_files[final_energies_dict[energy]], formation_constraints, breaking_constraints, factor=f, charge=0, final=False):
+                    if current_mode_ratio < lowest_mode_ratio:
+                        lowest_mode_ratio = current_mode_ratio
+                        id_best_guess = final_energies_dict[energy]
+                if i >= 6:
+                    break
+    
+        if validate_transition_state(xyz_files[final_energies_dict[energy]], formation_constraints, breaking_constraints, factor=f, charge=0, final=True):
+            return xyz_files[id_best_guess]
+
+
+def relax_path(xyz_files, charge):
     # get projection of energy gradient in plane orthogonal to path gradient
     # move coordinates downhill in energy and repeat
     # the most rigorous explanation found is here: https://pubs.aip.org/aip/jcp/article-abstract/94/1/751/98598/Reaction-path-study-of-helix-formation-in?redirectedFrom=fulltext
@@ -32,33 +62,27 @@ def relax_path(xyz_files, charge=0):
 
     sorted_energies = sorted(final_energies_dict.keys(), reverse=True)
 
-    lowest_mode_ratio = 1 # ratio between first and second imaginary mode
+    return final_energies_dict, sorted_energies
 
-    for i, energy in enumerate(sorted_energies):
-        neg_freq = get_negative_frequencies(xyz_files[final_energies_dict[energy]], charge)
-        #raise KeyError
-        #print(i, energy, neg_freq)
-        if len(neg_freq) == 1:
-            if validate_transition_state(xyz_files[final_energies_dict[energy]], 0, final=True):
-                return xyz_files[final_energies_dict[energy]]
-            else:
-                continue
-        elif len(neg_freq) == 0:
-            continue
-        else:
-            current_mode_ratio = float(neg_freq[1])/float(neg_freq[0])
-            if validate_transition_state(xyz_files[final_energies_dict[energy]], 0, final=False):
-                if current_mode_ratio < lowest_mode_ratio:
-                    lowest_mode_ratio = current_mode_ratio
-                    id_best_guess = final_energies_dict[energy]
-            i += 1
-            if i > 6:
-                break
-    
-    # this is not strictly necessary; you can also put this instead of "break" on l56
-    if validate_transition_state(xyz_files[final_energies_dict[energy]], 0, final=True):
-        print(xyz_files[id_best_guess])
-        return xyz_files[id_best_guess]
+
+def filter_active_bonds(formed_bonds, broken_bonds):
+    formed_bonds_tmp = get_bond_indices(formed_bonds)
+    broken_bonds_tmp = get_bond_indices(broken_bonds)
+
+    formed_bonds_filtered = formed_bonds_tmp.difference(broken_bonds_tmp)
+    broken_bonds_filtered = broken_bonds_tmp.difference(formed_bonds_tmp)
+
+    return formed_bonds_filtered, broken_bonds_filtered
+
+
+def get_bond_indices(bond_list):
+    bonds_tmp = []
+
+    for bond in bond_list:
+        i,j,_ = map(int, bond.split('-'))
+        bonds_tmp.append((i,j)) 
+
+    return set(bonds_tmp)
 
 
 def write_xyz_file(filename, elements, coordinates, i):
@@ -166,9 +190,6 @@ def read_first_normal_mode(filename):
                 break
 
     return np.array(normal_mode), frequency
-
-
-
 
 
 def get_ade_molecules(reactant_file, product_file, ts_guess_file, charge):

@@ -44,13 +44,13 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
 
     charge = Chem.GetFormalCharge(full_reactant_mol)
 
-    formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol) 
+    formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol) 
 
     # if more bonds are broken than formed, then reverse the reaction
     if len(formed_bonds) < len(broken_bonds):
         full_reactant_mol = Chem.MolFromSmiles(product_smiles, ps)
         full_product_mol = Chem.MolFromSmiles(reactant_smiles, ps)
-        formed_bonds, broken_bonds = get_active_bonds(full_reactant_mol, full_product_mol)
+        formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol)
 
     # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
@@ -60,7 +60,7 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
     breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
     formation_bonds_to_stretch = set(formation_constraints.keys()) - set(breaking_constraints.keys())
     formation_constraints_stretched = formation_constraints.copy()
-    formation_constraints_stretched.update((x, random.uniform(1.5, 2.0) * y) for x,y in formation_constraints_stretched.items() if x in formation_bonds_to_stretch)
+    formation_constraints_stretched.update((x, random.uniform(1.8, 2.3) * y) for x,y in formation_constraints_stretched.items() if x in formation_bonds_to_stretch)
 
     # Combine constraints if multiple reactants
     constraints = breaking_constraints.copy()
@@ -80,7 +80,7 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
     # generate a geometry for the product and save xyz -- randomize the distances for the constraints somewhat to sample diverse configurations
     breaking_bonds_to_stretch = set(breaking_constraints.keys()) - set(formation_constraints.keys())
     breaking_constraints_stretched = breaking_constraints.copy()
-    breaking_constraints_stretched.update((x, random.uniform(1.5, 2.0) * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
+    breaking_constraints_stretched.update((x, random.uniform(1.8, 2.3) * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
     product_constraints = formation_constraints.copy()
     if len(product_smiles.split('.')) != 1:
         for key,val in breaking_constraints_stretched.items():
@@ -131,29 +131,7 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
                 continue  # Means that you haven't reached the products at the end of the biased optimization
             else:
                 path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
-                return path_xyz_files
-
-
-def get_active_bonds(reactant_mol, product_mol):
-    """
-    Get the active bonds (formed and broken) between two molecules.
-
-    Args:
-        reactant_mol (Chem.Mol): Reactant molecule.
-        product_mol (Chem.Mol): Product molecule.
-
-    Returns:
-        tuple: A tuple containing two sets:
-            - Formed bonds (set of bond strings).
-            - Broken bonds (set of bond strings).
-    """
-    reactant_bonds = get_bonds(reactant_mol)
-    product_bonds = get_bonds(product_mol)
-
-    formed_bonds = product_bonds - reactant_bonds
-    broken_bonds = reactant_bonds - product_bonds
-
-    return formed_bonds, broken_bonds
+                return path_xyz_files, formation_constraints, breaking_constraints
 
 
 def get_inactive_bonds(reactant_mol, product_mol):
@@ -173,30 +151,6 @@ def get_inactive_bonds(reactant_mol, product_mol):
     inactive_bonds = reactant_bonds.intersection(product_bonds)
 
     return inactive_bonds
-
-
-def get_bonds(mol):
-    """
-    Get the bond strings of a molecule.
-
-    Args:
-        mol (Chem.Mol): Molecule.
-
-    Returns:
-        set: Set of bond strings.
-    """
-    bonds = set()
-    for bond in mol.GetBonds():
-        atom_1 = mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetAtomMapNum()
-        atom_2 = mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetAtomMapNum()
-        num_bonds = round(bond.GetBondTypeAsDouble())
-
-        if atom_1 < atom_2:
-            bonds.add(f'{atom_1}-{atom_2}-{num_bonds}')
-        else:
-            bonds.add(f'{atom_2}-{atom_1}-{num_bonds}')
-
-    return bonds
 
 
 def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
@@ -620,6 +574,7 @@ def generate_additional_conformers(optimized_ade_mol, full_reactant_mol, constra
 
     return conformers_to_do
 
+
 def count_unique_conformers(xyz_file_paths, full_reactant_mol):
     """
     Count the number of unique conformers among a list of XYZ file paths based on RMSD clustering.
@@ -839,3 +794,69 @@ def get_inactive_bond_mask(inactive_bonds, coordinates, full_reactant_dict):
         one_hot_array[full_reactant_dict[j]][full_reactant_dict[i]] = 1
 
     return one_hot_array
+
+def get_active_bonds_from_smiles(reactant_smiles, product_smiles):
+    """
+    Get the active bonds (formed and broken) between two SMILES.
+
+    Args:
+        reactant_smiles (string): Reactant string.
+        product_smiles (string): Product string.
+
+    Returns:
+        tuple: A tuple containing two sets:
+            - Formed bonds (set of bond strings).
+            - Broken bonds (set of bond strings).
+    """
+    full_reactant_mol = Chem.MolFromSmiles(reactant_smiles, ps)
+    full_product_mol = Chem.MolFromSmiles(product_smiles, ps)
+
+    formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol)
+
+    return formed_bonds, broken_bonds 
+
+
+def get_active_bonds_from_mols(reactant_mol, product_mol):
+    """
+    Get the active bonds (formed and broken) between two molecules.
+
+    Args:
+        reactant_mol (Chem.Mol): Reactant molecule.
+        product_mol (Chem.Mol): Product molecule.
+
+    Returns:
+        tuple: A tuple containing two sets:
+            - Formed bonds (set of bond strings).
+            - Broken bonds (set of bond strings).
+    """
+    reactant_bonds = get_bonds(reactant_mol)
+    product_bonds = get_bonds(product_mol)
+
+    formed_bonds = product_bonds - reactant_bonds
+    broken_bonds = reactant_bonds - product_bonds
+
+    return formed_bonds, broken_bonds
+
+
+def get_bonds(mol):
+    """
+    Get the bond strings of a molecule.
+
+    Args:
+        mol (Chem.Mol): Molecule.
+
+    Returns:
+        set: Set of bond strings.
+    """
+    bonds = set()
+    for bond in mol.GetBonds():
+        atom_1 = mol.GetAtomWithIdx(bond.GetBeginAtomIdx()).GetAtomMapNum()
+        atom_2 = mol.GetAtomWithIdx(bond.GetEndAtomIdx()).GetAtomMapNum()
+        num_bonds = round(bond.GetBondTypeAsDouble())
+
+        if atom_1 < atom_2:
+            bonds.add(f'{atom_1}-{atom_2}-{num_bonds}')
+        else:
+            bonds.add(f'{atom_2}-{atom_1}-{num_bonds}')
+
+    return bonds
