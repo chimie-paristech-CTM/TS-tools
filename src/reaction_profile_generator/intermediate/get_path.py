@@ -11,10 +11,8 @@ import subprocess
 from itertools import combinations
 import re
 import random
-import shutil
 
 from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
-from reaction_profile_generator.confirm_imag_modes import validate_ts_guess, determine_unactivated_bonds
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -57,68 +55,72 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
     # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
 
-    # Get the constraints for the initial FF conformer search
+    # Get the constraints for the initial FF conformer search -- randomize the distances for the constraints somewhat to sample diverse configurations
     formation_constraints = get_optimal_distances(product_smiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
     breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
-
-    # Determine bonds to stretch -- reactants & products
     formation_bonds_to_stretch = set(formation_constraints.keys()) - set(breaking_constraints.keys())
+    formation_constraints_stretched = formation_constraints.copy()
+    formation_constraints_stretched.update((x, random.uniform(1.8, 2.3) * y) for x,y in formation_constraints_stretched.items() if x in formation_bonds_to_stretch)
+
+    # Combine constraints if multiple reactants
+    constraints = breaking_constraints.copy()
+    if len(reactant_smiles.split('.')) != 1:
+        for key, val in formation_constraints_stretched.items():
+            if key not in constraints:
+                constraints[key] = val
+
+    # Generate initial optimized conformer with the correct stereochemistry
+    optimized_ade_reactant_mol = optimize_molecule_with_extra_constraints(
+        full_reactant_mol,
+        reactant_smiles,
+        constraints,
+        charge
+    )
+
+    # generate a geometry for the product and save xyz -- randomize the distances for the constraints somewhat to sample diverse configurations
     breaking_bonds_to_stretch = set(breaking_constraints.keys()) - set(formation_constraints.keys())
+    breaking_constraints_stretched = breaking_constraints.copy()
+    breaking_constraints_stretched.update((x, random.uniform(1.8, 2.3) * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
+    product_constraints = formation_constraints.copy()
+    if len(product_smiles.split('.')) != 1:
+        for key,val in breaking_constraints_stretched.items():
+            if key not in product_constraints:
+                product_constraints[key] = val
 
+    _ = optimize_molecule_with_extra_constraints(
+        full_reactant_mol,
+        product_smiles,
+        product_constraints,
+        charge,
+        name='product', 
+        reordering_dict=full_reactant_dict,
+        extra_constraints=breaking_constraints
+    )
 
-    for force_constant in [0.01, 0.02, 0.05, 0.07, 0.1, 0.15, 0.20, 0.25, 0.3, 0.4]: #, 0.5, 0.6, 0.8, 1.0]:
-        print(force_constant)
-        # Re-initialize the stretching parameters
-        formation_constraints_tmp = formation_constraints.copy()
-        formation_constraints_stretched = formation_constraints.copy()
-        breaking_constraints_stretched = breaking_constraints.copy()
-        for _ in range(10):
-            print(formation_constraints_tmp)
-            formation_constraints_stretched.update((x, 1.8 * y) for x,y in formation_constraints_tmp.items() if x in formation_bonds_to_stretch)
+    # Generate additional conformers for the reactants
+    conformers_to_do = generate_additional_conformers(
+        optimized_ade_reactant_mol,
+        full_reactant_mol,
+        constraints,
+        charge,
+        solvent,
+        n_conf
+    )
 
-            # Combine constraints if multiple reactants
-            constraints = breaking_constraints.copy()
-            if len(reactant_smiles.split('.')) != 1:
-                for key, val in formation_constraints_stretched.items():
-                    #if key not in constraints:
-                    constraints[key] = val
-                    
-            # Generate initial optimized reactant mol and conformer with the correct stereochemistry
-            optimized_ade_reactant_mol, conformer_name = optimize_molecule_with_extra_constraints(
-                full_reactant_mol,
-                reactant_smiles,
-                constraints,
-                charge
-            )
+    # Store bond lengths for the inactive bonds
+    inactive_bonds = get_inactive_bonds(full_reactant_mol, full_product_mol)
+    dist_mat = distance_matrix(optimized_ade_reactant_mol.coordinates, optimized_ade_reactant_mol.coordinates)
+    inactive_bond_mask = get_inactive_bond_mask(inactive_bonds, len(optimized_ade_reactant_mol.coordinates), full_reactant_dict)
+    masked_dist_mat = 1.1 * dist_mat * inactive_bond_mask
 
-            # Do the same on the product side, i.e. generate product complex conformer 
-            breaking_constraints_stretched.update((x, 1.8 * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
-            product_constraints = formation_constraints.copy()
-            if len(product_smiles.split('.')) != 1:
-                for key,val in breaking_constraints_stretched.items():
-                    #if key not in product_constraints:
-                    product_constraints[key] = val
-
-            _ = optimize_molecule_with_extra_constraints(
-                full_reactant_mol,
-                product_smiles,
-                product_constraints,
-                charge,
-                name='product', 
-                reordering_dict=full_reactant_dict,
-                extra_constraints=breaking_constraints
-            )
-
-            # Store bond lengths for the inactive bonds and generate an inactive bond mask, which will be used to reject intermediate geometries 
-            # involving dissociated bonds
-            inactive_bonds = get_inactive_bonds(full_reactant_mol, full_product_mol)
-            dist_mat = distance_matrix(optimized_ade_reactant_mol.coordinates, optimized_ade_reactant_mol.coordinates)
-            inactive_bond_mask = get_inactive_bond_mask(inactive_bonds, len(optimized_ade_reactant_mol.coordinates), full_reactant_dict)
-            masked_dist_mat = 1.1 * dist_mat * inactive_bond_mask
-
+    constraints_tmp = formation_constraints.copy()
+    # Apply attractive potentials and run optimization
+    for conformer in conformers_to_do:
+        # Find the minimal force constant yielding the product upon application of the formation constraints
+        for force_constant in np.arange(fc_min, fc_max, fc_delta):
             energies, coords, atoms, potentials = get_profile_for_biased_optimization(
-                conformer_name,
-                formation_constraints,
+                conformer,
+                constraints_tmp,
                 force_constant,
                 inactive_bond_mask,
                 masked_dist_mat,
@@ -127,55 +129,14 @@ def get_path(reactant_smiles, product_smiles, solvent=None, n_conf=5, fc_min=0.0
             )
 
             if potentials[-1] > 0.01:
-                    #import pdb; pdb.set_trace()
-                break  # Means that you haven't reached the products at the end of the biased optimization
+                continue  # Means that you haven't reached the products at the end of the biased optimization
             else:
                 path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
-                ts_guess_file, validation_flag = get_ts_guess(energies, potentials, path_xyz_files, charge)
-                
-                if validation_flag == True:
-                    return ts_guess_file
-
-                unactivated_bonds = determine_unactivated_bonds(ts_guess_file, factor=1.1)
-                atoms_involved_in_unactivated_bonds = [atom_idx for bond in unactivated_bonds for atom_idx in bond]
-
-                for bond in formation_constraints_tmp:
-                    if bond in unactivated_bonds:
-                        formation_constraints_tmp[bond] = 1.1 * formation_constraints_tmp[bond]
-                    else:
-                        i,j = bond
-                        if i in atoms_involved_in_unactivated_bonds or j in atoms_involved_in_unactivated_bonds:
-                            formation_constraints_tmp[bond] = 0.9 * formation_constraints_tmp[bond]
-
-
-def get_ts_guess(energies, potentials, path_xyz_files, charge):
-    """_summary_
-
-    Args:
-        energies (_type_): _description_
-        potentials (_type_): _description_
-        path_xyz_files (_type_): _description_
-        charge ():
-    """
-    true_energies = list(np.array(energies) - np.array(potentials))
-    true_energies_indexed = list(enumerate(true_energies))
-    sorted_true_energies = sorted(true_energies_indexed, key=lambda x: x[1], reverse=True)
-    sorted_indices = [index for index, _ in sorted_true_energies]
-
-    for i in range(5):
-        ts_prelim_guess = path_xyz_files[sorted_indices[i]]
-        get_negative_frequencies(ts_prelim_guess, charge)
-        # TODO: clean this up completely!!!
-        if validate_ts_guess(ts_prelim_guess, factor=1.08, charge=charge, final=True):
-            print(sorted_true_energies)
-            print(i, sorted_indices[i])
-            print(ts_prelim_guess)
-            return ts_prelim_guess, True
-        else:
-            continue
-
-    get_negative_frequencies(path_xyz_files[sorted_indices[0]], charge)
-    return path_xyz_files[sorted_indices[0]], False
+                print(energies, potentials)
+                true_energies = list(np.array(energies) - np.array(potentials))
+                print(true_energies)
+                raise KeyError
+                return path_xyz_files, formation_constraints, breaking_constraints
 
 
 def get_inactive_bonds(reactant_mol, product_mol):
@@ -324,10 +285,8 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
 
     Returns:
         object: The optimized ADE molecule.
-        string: The name of the xyz-file
     """
     get_conformer(full_mol)
-    
     if reordering_dict is not None:
         write_xyz_file_from_mol(full_mol, f'input_{name}.xyz', reordering_dict)
     else:
@@ -356,7 +315,7 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
     stereochemistry_smiles_reactants = get_stereochemistry_from_mol(full_mol)
 
     for n in range(100):
-        atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n, save_xyz=False) # set save_xyz to false to ensure new optimization
+        atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n)
         conformer = Conformer(name=f"conformer_{name}_init", atoms=atoms, charge=charge, dist_consts=constraints)
         write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
         embedded_mol, stereochemistry_xyz_reactants = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', smiles)
@@ -376,7 +335,7 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
     ade_mol_optimized.optimise(method=ade.methods.XTB())
     write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'conformer_{name}_init.xyz')
 
-    return ade_mol_optimized, f'conformer_{name}_init.xyz' 
+    return ade_mol_optimized
 
 
 def get_stereochemistry_from_mol(mol):
@@ -446,6 +405,14 @@ def xtb_optimize_with_applied_potentials(xyz_file_path, constraints, force_const
         str: The path to the xTB log file.
     """
     xtb_input_path = os.path.splitext(xyz_file_path)[0] + '.inp'
+    
+    #print(constraints[(1,8)])
+    try:
+        #del constraints[(1,8)]
+        constraints[(1,8)] = constraints[(1,8)] * 1.1
+        print(constraints)
+    except:
+        pass
 
 
     with open(xtb_input_path, 'w') as f:
@@ -588,8 +555,6 @@ def get_path_xyz_files(atoms, coords, force_constant):
     """
     path_xyz_files = []
     folder_name = f'path_xyzs_{force_constant}'
-    if folder_name in os.listdir():
-        shutil.rmtree(folder_name)
     os.makedirs(folder_name)
 
     for i in range(len(atoms)):
@@ -601,6 +566,36 @@ def get_path_xyz_files(atoms, coords, force_constant):
         path_xyz_files.append(filename)  
 
     return path_xyz_files
+
+
+def generate_additional_conformers(optimized_ade_mol, full_reactant_mol, constraints, charge, solvent, n_conf):
+    """
+    Generate additional conformers based on the optimized ADE molecule and constraints.
+
+    Args:
+        optimized_ade_mol: The optimized ADE molecule.
+        full_reactant_mol: The full reactant molecule.
+        constraints: Constraints for conformer generation.
+        charge: Charge value.
+        solvent: Solvent to consider.
+        n_conf: Number of additional conformers to generate.
+
+    Returns:
+        list: A list of additional conformers.
+    """
+    conformer_xyz_files = []
+
+    for n in range(n_conf):
+        atoms = conf_gen.get_simanl_atoms(species=optimized_ade_mol, dist_consts=constraints, conf_n=n_conf)
+        conformer = Conformer(name=f"conformer_{n}", atoms=atoms, charge=charge, dist_consts=constraints)
+        write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
+        optimized_xyz = xtb_optimize(f'{conformer.name}.xyz', charge=charge, solvent=solvent)
+        conformer_xyz_files.append(optimized_xyz)
+
+    clusters = count_unique_conformers(conformer_xyz_files, full_reactant_mol)
+    conformers_to_do = [conformer_xyz_files[cluster[0]] for cluster in clusters]
+
+    return conformers_to_do
 
 
 def count_unique_conformers(xyz_file_paths, full_reactant_mol):
@@ -888,41 +883,3 @@ def get_bonds(mol):
             bonds.add(f'{atom_2}-{atom_1}-{num_bonds}')
 
     return bonds
-
-
-def get_negative_frequencies(filename, charge):
-    """
-    Executes an external program to calculate the negative frequencies for a given file.
-
-    Args:
-        filename (str): The name of the file to be processed.
-        charge (int): The charge value for the calculation.
-
-    Returns:
-        list: A list of negative frequencies.
-    """
-    with open('hess.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
-        process.wait()
-    
-    neg_freq = read_negative_frequencies('g98.out')
-    return neg_freq
-
-
-def read_negative_frequencies(filename):
-    """
-    Read the negative frequencies from a file.
-
-    Args:
-        filename: The name of the file.
-
-    Returns:
-        list: The list of negative frequencies.
-    """
-    with open(filename, 'r') as file:
-        for line in file:
-            if line.strip().startswith('Frequencies --'):
-                frequencies = line.strip().split()[2:]
-                negative_frequencies = [freq for freq in frequencies if float(freq) < 0]
-                return negative_frequencies

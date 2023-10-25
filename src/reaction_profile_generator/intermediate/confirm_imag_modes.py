@@ -11,25 +11,29 @@ import shutil
 xtb = ade.methods.XTB()
 
 
-def validate_ts_guess(ts_file, factor=1.05, charge=0, final=False):
+def validate_transition_state(ts_file, prod_distances, reac_distances, factor=1.05, charge=0, final=False):
     """
-    Validates a transition state guess by performing various checks on the provided parameters.
+    Validates a transition state by performing various checks on the provided parameters.
 
     Args:
-        ts_file (str): The name of the (tentative) TS file.
-        factor (float): Multiplication factor to apply to the equilibrium bond lengths for activation check.
+        ts_file (str): The name of the TS file.
+        formed_bonds ():
+        broken_bonds ():
         charge (int): The charge of the reacting system. Defaults to 0.
-        final (bool): Whether or not the TS guess is final.
 
     Returns:
         bool: True if the transition state is valid, False otherwise.
     """
+    
     # get all information about main imaginary mode
     freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, \
-    active_bonds_forming, active_bonds_breaking, reac_distances, prod_distances, \
-    ts_distances = extract_info_ts_file(ts_file, charge)
+    active_bonds_forming, active_bonds_breaking = confirm_imag_mode(ts_file, charge)
 
-    # determine which bonds, undergoing a change during the reaction, are active in the imaginary mode
+    # get distances in the transition state
+    ts_mol = ade.Molecule(ts_file)
+    ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
+
+
     active_formed_bonds_involved_in_mode = [
         active_bonds_involved_in_mode[bond]
         for bond in set(active_bonds_involved_in_mode.keys()).intersection(active_bonds_forming)
@@ -44,8 +48,12 @@ def validate_ts_guess(ts_file, factor=1.05, charge=0, final=False):
     # Check that at least one active bond is getting displaced in mode,
     # check that all broken and formed bonds in the active mode move in the same direction,
     # and that the bond lengths are intermediate between reactants and products.
+    #bond_lengths_intermediate = check_if_bond_lengths_intermediate(
+    #    ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking
+    #)
     bond_lengths_intermediate = check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distances, 
                                                                     active_bonds_forming, active_bonds_breaking, factor)
+    # TODO: Fix this!
 
     if len(extra_bonds_involved_in_mode) == 0 and len(active_bonds_involved_in_mode) != 0 \
     and check_same_sign(active_formed_bonds_involved_in_mode) \
@@ -55,30 +63,6 @@ def validate_ts_guess(ts_file, factor=1.05, charge=0, final=False):
         return True
     else:
         return False
-
-
-def determine_unactivated_bonds(ts_file, factor=1.05, charge=0):
-    """
-
-    Args:
-        ts_file (_type_): _description_
-        factor (float, optional): _description_. Defaults to 1.05.
-        charge (int, optional): _description_. Defaults to 0.
-    """
-    # get all information about main imaginary mode
-    _, _, _, active_bonds_forming, active_bonds_breaking, reac_distances, prod_distances, ts_distances = extract_info_ts_file(ts_file, charge)
-
-    unactivated_bonds = []
-
-    for active_bond in active_bonds_forming:
-        if ts_distances[active_bond[0], active_bond[1]] < prod_distances[active_bond[0], active_bond[1]] * factor:
-            unactivated_bonds.append(active_bond)
-    
-    for active_bond in active_bonds_breaking:
-        if ts_distances[active_bond[0], active_bond[1]] < reac_distances[active_bond[0], active_bond[1]] * factor:
-            unactivated_bonds.append(active_bond)    
-
-    return unactivated_bonds
 
 
 def check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distances, active_bonds_forming, active_bonds_breaking, factor):
@@ -99,14 +83,14 @@ def check_if_bond_lengths_intermediate(ts_distances, reac_distances, prod_distan
 
     for active_bond in active_bonds_forming:
         if ts_distances[active_bond[0], active_bond[1]] < prod_distances[active_bond[0], active_bond[1]] * factor:
-            print('forming: ', active_bond, ts_distances[active_bond[0], active_bond[1]], prod_distances[active_bond[0], active_bond[1]])
+            print(active_bond, ts_distances[active_bond[0], active_bond[1]], prod_distances[active_bond[0], active_bond[1]])
             return False
         else:
             continue
     
     for active_bond in active_bonds_breaking:
         if ts_distances[active_bond[0], active_bond[1]] < reac_distances[active_bond[0], active_bond[1]] * factor:
-            print('breaking: ', active_bond, ts_distances[active_bond[0], active_bond[1]], reac_distances[active_bond[0], active_bond[1]])
+            print(active_bond, ts_distances[active_bond[0], active_bond[1]], reac_distances[active_bond[0], active_bond[1]])
             return False
         else:
             continue
@@ -161,7 +145,7 @@ def move_final_guess_xyz(ts_guess_file):
     )
 
 
-def extract_info_ts_file(ts_file, charge):
+def confirm_imag_mode(ts_file, charge):
     """
     Confirm if the provided directory represents an imaginary mode.
 
@@ -180,12 +164,7 @@ def extract_info_ts_file(ts_file, charge):
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
 
-    # Compute distance matrices -- reactants, products and tentative TS
-    reac_distances = distance_matrix(reactant.coordinates, reactant.coordinates)
-    prod_distances = distance_matrix(product.coordinates, product.coordinates)
-    ts_distances = distance_matrix(ts_mol.coordinates, ts_mol.coordinates)
-
-    # compute distance matrices -- TS geometry obtained through displacement along imaginary mode
+    # Compute distance matrices
     f_distances = distance_matrix(f_displaced_species.coordinates, f_displaced_species.coordinates)
     b_distances = distance_matrix(b_displaced_species.coordinates, b_displaced_species.coordinates)
 
@@ -207,7 +186,7 @@ def extract_info_ts_file(ts_file, charge):
     # Check bond displacements and assign involvement
     for bond in all_bonds:
         if bond in active_bonds: 
-            if abs(delta_mode[bond[0], bond[1]]) < 0.75:
+            if abs(delta_mode[bond[0], bond[1]]) < 0.5:
                 continue  # Small displacement, ignore
             else:
                 active_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]]
@@ -217,8 +196,7 @@ def extract_info_ts_file(ts_file, charge):
             else:
                 extra_bonds_involved_in_mode[bond] = delta_mode[bond[0], bond[1]] 
 
-    return freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, \
-        active_bonds_breaking, reac_distances, prod_distances, ts_distances
+    return freq, active_bonds_involved_in_mode, extra_bonds_involved_in_mode, active_bonds_forming, active_bonds_breaking
 
 
 def read_first_normal_mode(filename):
@@ -341,11 +319,12 @@ def get_ade_molecules(reactant_file, product_file, ts_guess_file, charge):
 
 def get_xyzs():
     """
-    Get the names of the reactant and product files.
+    Get the names of the reactant, product, and transition state guess files.
 
     Returns:
         str: The name of the reactant file.
         str: The name of the product file.
+        str: The name of the transition state guess file.
     """
     reactant_file = [f for f in os.listdir() if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
     product_file = [f for f in os.listdir() if f == 'conformer_product_init_optimised_xtb.xyz'][0]

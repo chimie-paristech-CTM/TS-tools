@@ -1,5 +1,5 @@
 from reaction_profile_generator.get_path import get_path
-#from reaction_profile_generator.relax_path import generate_ts_guess
+from reaction_profile_generator.relax_path import generate_ts_guess
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from reaction_profile_generator.utils import work_in, xyz_to_gaussian_input
@@ -32,17 +32,17 @@ def get_smiles_strings_alt():
 def run_path_search(reaction_smiles):
     ''' a function that splits up a reaction smiles in reactant and product, and then calls the function get_path with these as parameters. '''
     reactant_smiles, product_smiles = reaction_smiles.split('>>')
-    ts_guess = get_path(reactant_smiles, product_smiles) #, solvent='water')
+    path_xyz_files = get_path(reactant_smiles, product_smiles) #, solvent='water')
 
-    return ts_guess
+    return path_xyz_files
 
 
-#@work_in(workdir)
-#def run_path_relaxation(xyz_files, prod_distances, reac_distances):
-#    ''' a function that takes in the list of xyz-files of a path and then relaxes the path by calling the relax_path method. '''
-#    path_xyz_files = generate_ts_guess(xyz_files, prod_distances, reac_distances) #, solvent='water')
+@work_in(workdir)
+def run_path_relaxation(xyz_files, prod_distances, reac_distances):
+    ''' a function that takes in the list of xyz-files of a path and then relaxes the path by calling the relax_path method. '''
+    path_xyz_files = generate_ts_guess(xyz_files, prod_distances, reac_distances) #, solvent='water')
 
-#    return path_xyz_files
+    return path_xyz_files
 
 
 if __name__ == "__main__":
@@ -61,15 +61,20 @@ if __name__ == "__main__":
 
     for idx, smiles_string in smiles_strings[21:23]: #[20:23]: #[16:18]):
         ts_guess = None
-        #for i in range(10):
-        # if directory already exists, then replace it
-        if f'reaction_{idx}' in os.listdir(target_dir):
-            shutil.rmtree(f'{target_dir}/reaction_{idx}')
-        change_workdir(f'{target_dir}/reaction_{idx}')
-        try:
-            ts_guess = run_path_search(smiles_string)
-        except:
-            continue
+        for i in range(10):
+            # if directory already exists, then replace it
+            if f'reaction_{idx}' in os.listdir(target_dir):
+                shutil.rmtree(f'{target_dir}/reaction_{idx}')
+            change_workdir(f'{target_dir}/reaction_{idx}')
+            #try:
+            path_xyzs, prod_distances, reac_distances = run_path_search(smiles_string)
+            ts_guess = run_path_relaxation(path_xyzs, prod_distances, reac_distances)
+            if ts_guess is not None:
+                break
+            else: 
+                continue
+            #except:
+            #    continue
         
         if ts_guess is not None:
             print(f'TS for {smiles_string}: {ts_guess}')

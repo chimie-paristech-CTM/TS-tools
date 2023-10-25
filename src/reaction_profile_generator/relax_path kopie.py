@@ -3,6 +3,7 @@ import autode as ade
 import os
 import re
 import subprocess
+from scipy.spatial import distance_matrix
 
 from reaction_profile_generator.confirm_imag_modes import validate_transition_state
 
@@ -17,7 +18,7 @@ def generate_ts_guess(xyz_files, formation_constraints, breaking_constraints, ch
 
     lowest_mode_ratio = 1 # ratio between first and second imaginary mode
 
-    for f in [1.05, 1.005]:
+    for f in [1.05, 1.0]:
         for i, energy in enumerate(sorted_energies):
             neg_freq = get_negative_frequencies(xyz_files[final_energies_dict[energy]], charge)
             if len(neg_freq) == 1:
@@ -33,7 +34,7 @@ def generate_ts_guess(xyz_files, formation_constraints, breaking_constraints, ch
                     if current_mode_ratio < lowest_mode_ratio:
                         lowest_mode_ratio = current_mode_ratio
                         id_best_guess = final_energies_dict[energy]
-                if i >= 6:
+                if i >= 5:
                     break
     
         if validate_transition_state(xyz_files[final_energies_dict[energy]], formation_constraints, breaking_constraints, factor=f, charge=0, final=True):
@@ -47,21 +48,25 @@ def relax_path(xyz_files, charge):
 
     final_energies_dict = {}
 
-    for i in range(10):
+    for i in range(5):
         for j, file in enumerate(xyz_files[:-1]):
             coordinates, element_types = get_coordinates(file)
             coordinates_next, _ = get_coordinates(xyz_files[j+1])
-
             path_gradient = coordinates - coordinates_next
             energy_gradient, energy = get_gradient(file, charge)
             projections = calculate_projections(path_gradient, energy_gradient)
-            coordinates_new = coordinates - projections * 0.25
+            biggest_displacement = np.max(projections)
+            factor = min(0.5, 0.01 / biggest_displacement)
+            if j == 1:
+                print(distance_matrix(coordinates, coordinates))
+                print(factor, biggest_displacement)
+            coordinates_new = coordinates - projections * factor
             write_xyz_file(file, element_types, coordinates_new, i)
-            if i == 9:
+            if i == 4:
                 final_energies_dict[energy] = j
 
     sorted_energies = sorted(final_energies_dict.keys(), reverse=True)
-
+    #raise KeyError
     return final_energies_dict, sorted_energies
 
 
@@ -95,6 +100,7 @@ def write_xyz_file(filename, elements, coordinates, i):
             x, y, z = coordinate
             line = f"{element} {x:.6f} {y:.6f} {z:.6f}\n"
             file.write(line)
+
 
 def get_coordinates(filename):
     coordinates = []
@@ -135,6 +141,7 @@ def get_gradient(filename, charge):
     gradient = extract_gradient_from_file('gradient')
 
     return gradient
+
 
 def extract_gradient_from_file(file_path):
     gradient_lines = []
