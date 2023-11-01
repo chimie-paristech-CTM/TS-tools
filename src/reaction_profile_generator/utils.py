@@ -44,7 +44,7 @@ def work_in(dir_ext: list) -> Callable:
     return func_decorator
 
 
-def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', extra_commands='opt=(calcfc,ts, noeigen) freq=noraman', IRC=True):
+def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', extra_commands='opt=(calcfc,ts, noeigen) freq=noraman'):
     """
     Convert an XYZ file to Gaussian 16 input file format.
 
@@ -61,7 +61,10 @@ def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-3
 
     with open(output_file, 'w') as gaussian_input:
         # Write the route section
-        gaussian_input.write(f'%Chk={filename}.chk\n%nproc=8\n%Mem=16GB\n# {method}/{basis_set} {extra_commands}')
+        if 'external' in method:
+            gaussian_input.write(f'%Chk={filename}.chk\n# {method} {extra_commands}')
+        else:
+            gaussian_input.write(f'%Chk={filename}.chk\n%nproc=8\n%Mem=16GB\n# {method}/{basis_set} {extra_commands}')
         
         # Write the title section
         gaussian_input.write('\n\nTitle\n\n')
@@ -78,12 +81,6 @@ def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-3
 
         # Write the blank line and the end of the input file
         gaussian_input.write('\n')
-
-        if IRC:
-            gaussian_input.write('--Link1--\n')
-            gaussian_input.write(f'%Chk={filename}.chk\n%nproc=8\n%Mem=16GB\n# {method}/{basis_set} IRC(MaxPoints=20,CalcAll,Synchronous)')
-            gaussian_input.write('\n\nTitle\n\n')
-            gaussian_input.write('0 1\n\n')
 
     print(f'Gaussian input file "{output_file}" has been created.')
 
