@@ -11,9 +11,10 @@ import subprocess
 from itertools import combinations
 import re
 import shutil
+import random
 
 from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
-from reaction_profile_generator.confirm_imag_modes import validate_ts_guess, determine_unactivated_bonds
+from reaction_profile_generator.confirm_ts_guess import validate_ts_guess
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -23,8 +24,7 @@ xtb = ade.methods.XTB()
 xtb.force_constant = 2
 
 
-def determine_ts_guess_from_path(reactant_smiles, product_smiles, solvent=None, reactive_complex_factor=1.8, 
-                                 bond_length_factor=1.05, disp_cut_off=0.7, freq_cut_off=150):
+def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None, reactive_complex_factor=1.8, freq_cut_off=150):
     """
     Finds a reaction path by applying an AFIR potential based on the given reactant and product SMILES strings.
 
@@ -67,14 +67,15 @@ def determine_ts_guess_from_path(reactant_smiles, product_smiles, solvent=None, 
 
     counter = 0 # set a counter to be able to break off the force_constant scan
     for force_constant in [0.005, 0.01, 0.02, 0.05, 0.07, 0.1, 0.15, 0.20, 0.25, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]:
-        print(f'Currently attempting AFIR optimization with a force constant of {force_constant}...')
+        #print(f'Currently attempting AFIR optimization with a force constant of {force_constant}...')
         # Re-initialize the stretching parameters
         formation_constraints_tmp = formation_constraints.copy()
         formation_constraints_stretched = formation_constraints.copy()
         breaking_constraints_stretched = breaking_constraints.copy()
 
-        for _ in range(10):
-            formation_constraints_stretched.update((x, reactive_complex_factor * y) for x,y in formation_constraints_tmp.items() if x in formation_bonds_to_stretch)
+        for _ in range(3):
+            formation_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
+                                                   for x,y in formation_constraints_tmp.items() if x in formation_bonds_to_stretch)
 
             # Combine constraints if multiple reactants
             constraints = breaking_constraints.copy()
@@ -92,7 +93,8 @@ def determine_ts_guess_from_path(reactant_smiles, product_smiles, solvent=None, 
             )
 
             # Do the same on the product side, i.e. generate product complex conformer 
-            breaking_constraints_stretched.update((x, reactive_complex_factor * y) for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
+            breaking_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
+                                                  for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
             product_constraints = formation_constraints.copy()
             if len(product_smiles.split('.')) != 1:
                 for key,val in breaking_constraints_stretched.items():
@@ -109,7 +111,7 @@ def determine_ts_guess_from_path(reactant_smiles, product_smiles, solvent=None, 
             )
 
             # Store bond lengths for the inactive bonds and generate an inactive bond mask, which will be used to reject intermediate geometries 
-            # involving dissociated bonds
+            # involving spuriously dissociated bonds
             inactive_bonds = get_inactive_bonds(full_reactant_mol, full_product_mol)
             dist_mat = distance_matrix(optimized_ade_reactant_mol.coordinates, optimized_ade_reactant_mol.coordinates)
             inactive_bond_mask = get_inactive_bond_mask(inactive_bonds, len(optimized_ade_reactant_mol.coordinates), full_reactant_dict)
@@ -129,95 +131,77 @@ def determine_ts_guess_from_path(reactant_smiles, product_smiles, solvent=None, 
                 break  # Means that you haven't reached the products at the end of the biased optimization
             else:
                 path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
-                ts_guess_file, validation_flag = get_ts_guess(energies, potentials, path_xyz_files, \
-                    charge, factor=bond_length_factor, disp_cut_off=disp_cut_off, freq_cut_off=freq_cut_off)
+                guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
+                    charge, freq_cut_off=freq_cut_off)
                 
-                if validation_flag == True:
-                    return ts_guess_file
-
-                # update constraints
-                formation_constraints_tmp = update_constraints(ts_guess_file, formation_constraints_tmp, bond_length_factor)
+                if guesses_found:
+                    return True
         
-        # If no TS guess found after 10 scans with updated constraints, increment the counter
+        # If no TS guess found after 3 scans with updated constraints, increment the counter
         if potentials[-1] < 0.01:
             counter += 1
 
         # If after two scans with sufficiently big force constants, you still haven't found the TS -> break off the search
         if counter == 3:
-            return None
+            return False
+        
 
-
-def update_constraints(ts_guess_file, formation_constraints_tmp, factor=1.1):
-    """_summary_
-
-    Args:
-        ts_guess_file (_type_): _description_
-        formation_constraints_tmp (_type_): _description_
-        factor (float, optional): _description_. Defaults to 1.1.
-
-    Returns:
-        _type_: _description_
+def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=150):
     """
-    unactivated_bonds = determine_unactivated_bonds(ts_guess_file, path=os.getcwd(), factor=factor)
-    atoms_involved_in_unactivated_bonds = [atom_idx for bond in unactivated_bonds for atom_idx in bond]
-
-    for bond in formation_constraints_tmp:
-        if bond in unactivated_bonds:
-            formation_constraints_tmp[bond] = 1.1 * formation_constraints_tmp[bond]
-        else:
-            i,j = bond
-            if i in atoms_involved_in_unactivated_bonds or j in atoms_involved_in_unactivated_bonds:
-                formation_constraints_tmp[bond] = 0.9 * formation_constraints_tmp[bond]
-
-    return formation_constraints_tmp
-
-def get_ts_guess(energies, potentials, path_xyz_files, charge, factor=1.05, disp_cut_off=0.7, freq_cut_off=150):
-    """
-    Find a transition state (TS) guess from a list of potential TS structures.
-
-    Args:
-        energies (List[float]): List of energy values for the potential TS structures.
-        potentials (List[float]): List of potential energy values for the TS structures.
-        path_xyz_files (List[str]): List of file paths to XYZ files for the potential TS structures.
-        charge (int): The charge of the reacting system.
-        factor (float, optional): A factor to compare bond lengths with equilibrium lengths. Defaults to 1.05.
-        disp_cut_off (float, optional): A cutoff value for filtering small bond displacements. Defaults to 0.7.
-        freq_cut_off (float, optional): A cutoff value for the main imaginary frequency. Defaults to 150.
-
-    Returns:
-        tuple: A tuple containing the following:
-            - str: File path to the selected TS guess.
-            - bool: True if a valid TS guess is found, False otherwise.
-
-    This function selects a TS guess from a list of potential TS structures based on energy criteria and performs validation checks. 
-    It iterates through the potential TS structures, prioritizing those with higher potential energy, 
-    and validates each TS guess using the `validate_ts_guess` function.
-
-    Note:
-    - The `energies` and `potentials` lists should have corresponding entries for each potential TS structure.
-    - The TS guess is validated with specific parameters including a factor, displacement cutoff, 
-        and frequency cutoff in the `validate_ts_guess` function.
+    ...
     """
     true_energies = list(np.array(energies) - np.array(potentials))
-    true_energies_indexed = list(enumerate(true_energies))
-    sorted_true_energies = sorted(true_energies_indexed, key=lambda x: x[1], reverse=True)
-    sorted_indices = [index for index, _ in sorted_true_energies]
+    indices_prelim_ts_guesses = find_local_max_indices(true_energies)
 
-    for i in range(10):
-        ts_prelim_guess = path_xyz_files[sorted_indices[i]]
-        get_negative_frequencies(ts_prelim_guess, charge)
-        if validate_ts_guess(ts_prelim_guess, factor=factor, disp_cut_off=disp_cut_off, freq_cut_off=freq_cut_off, \
-                             charge=charge, final=True, path=os.getcwd()):
-            #print(sorted_true_energies)
-            #print(i, sorted_indices[i])
-            print(f'Preliminary TS guess found: {ts_prelim_guess}')
-            return ts_prelim_guess, True
-        else:
-            continue
+    print(true_energies)
 
-    get_negative_frequencies(path_xyz_files[sorted_indices[0]], charge)
+    ts_guess_dict = {}
+    for index in indices_prelim_ts_guesses:
+        ts_guess_file, freq = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
+        if ts_guess_file is not None:
+            ts_guess_dict[ts_guess_file] = freq
 
-    return path_xyz_files[sorted_indices[0]], False
+    print(ts_guess_dict)
+    
+    if len(ts_guess_dict) == 0:
+        return False
+
+    sorted_guess_dict = sorted(ts_guess_dict.items(), key=lambda x: x[1])
+
+    ranked_guess_files = [item[0] for item in sorted_guess_dict]
+
+    for index, guess_file in enumerate(ranked_guess_files):
+        move_final_guess_xyz(guess_file, index)
+
+    return True
+
+
+def move_final_guess_xyz(ts_guess_file, index):
+    """
+    Moves the final transition state guess XYZ file to a designated folder and renames it.
+
+    Args:
+        ts_guess_file (str): Path to the transition state guess XYZ file.
+        ...
+
+    Returns:
+        None
+    """
+    path_name = '/'.join(os.getcwd().split('/')[:-1])
+    reaction_name = os.getcwd().split('/')[-1]
+    shutil.copy(ts_guess_file, os.path.join(path_name, 'final_ts_guesses'))
+    os.rename(
+        os.path.join(os.path.join(path_name, 'final_ts_guesses'), ts_guess_file.split('/')[-1]), 
+        os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess_{index}.xyz')
+    )
+
+
+def find_local_max_indices(numbers):
+    local_max_indices = []
+    for i in range(len(numbers) - 2, 0, -1):
+        if numbers[i] > numbers[i - 1] and numbers[i] > numbers[i + 1]:
+            local_max_indices.append(i)
+    return local_max_indices
 
 
 def get_inactive_bonds(reactant_mol, product_mol):
@@ -282,7 +266,8 @@ def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
             ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=solvent)
         else:
             ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
-        ade_rmol.populate_conformers(n_confs=1)
+
+        ade_rmol.conformers = [conf_gen.get_simanl_conformer(ade_rmol)]
 
         ade_rmol.conformers[0].optimise(method=xtb)
         dist_matrix = distance_matrix(ade_rmol.coordinates, ade_rmol.coordinates)
@@ -644,48 +629,6 @@ def get_path_xyz_files(atoms, coords, force_constant):
     return path_xyz_files
 
 
-def count_unique_conformers(xyz_file_paths, full_reactant_mol):
-    """
-    Count the number of unique conformers among a list of XYZ file paths based on RMSD clustering.
-
-    Args:
-        xyz_file_paths (list): A list of paths to the XYZ files.
-        full_reactant_mol (Chem.Mol): The full reactant molecule as an RDKit Mol object.
-
-    Returns:
-        list: A list of clusters, where each cluster contains the indices of conformers belonging to the same cluster.
-    """
-    molecules = []
-    for xyz_file_path in xyz_file_paths:
-        with open(xyz_file_path, 'r') as xyz_file:
-            lines = xyz_file.readlines()
-            num_atoms = int(lines[0])
-            coords = [list(map(float, line.split()[1:])) for line in lines[2:num_atoms+2]]
-            mol = Chem.Mol(full_reactant_mol)
-            conformer = mol.GetConformer()
-            for i in range(num_atoms):
-                conformer.SetAtomPosition(i, coords[i])
-            molecules.append(mol)
-
-    rmsd_matrix = np.zeros((len(molecules), len(molecules)))
-    for i, j in combinations(range(len(molecules)), 2):
-        rmsd = AllChem.GetBestRMS(molecules[i], molecules[j])
-        rmsd_matrix[i, j] = rmsd
-        rmsd_matrix[j, i] = rmsd
-
-    clusters = []
-    for i in range(len(molecules)):
-        cluster_found = False
-        for cluster in clusters:
-            if all(rmsd_matrix[i, j] < 0.5 for j in cluster):
-                cluster.append(i)
-                cluster_found = True
-                break
-        if not cluster_found:
-            clusters.append([i])
-
-    return clusters
-
 def xtb_optimize(xyz_file_path, charge=0, solvent=None):
     """
     Perform an xTB optimization of the geometry in the given XYZ file and return the path to the optimized geometry file.
@@ -831,6 +774,7 @@ def find_cis_trans_elements(mol):
 
     return cis_trans_elements
 
+
 def extract_atom_map_numbers(string):
     """
     Extract atom map numbers from a string.
@@ -929,41 +873,3 @@ def get_bonds(mol):
             bonds.add(f'{atom_2}-{atom_1}-{num_bonds}')
 
     return bonds
-
-
-def get_negative_frequencies(filename, charge):
-    """
-    Executes an external program to calculate the negative frequencies for a given file.
-
-    Args:
-        filename (str): The name of the file to be processed.
-        charge (int): The charge value for the calculation.
-
-    Returns:
-        list: A list of negative frequencies.
-    """
-    with open('hess.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
-        process.wait()
-    
-    neg_freq = read_negative_frequencies('g98.out')
-    return neg_freq
-
-
-def read_negative_frequencies(filename):
-    """
-    Read the negative frequencies from a file.
-
-    Args:
-        filename: The name of the file.
-
-    Returns:
-        list: The list of negative frequencies.
-    """
-    with open(filename, 'r') as file:
-        for line in file:
-            if line.strip().startswith('Frequencies --'):
-                frequencies = line.strip().split()[2:]
-                negative_frequencies = [freq for freq in frequencies if float(freq) < 0]
-                return negative_frequencies
