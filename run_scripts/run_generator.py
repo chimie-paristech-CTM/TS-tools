@@ -3,15 +3,13 @@ import os
 import shutil
 import subprocess
 import multiprocessing
-from functools import partial
 
 from reaction_profile_generator.get_path import determine_ts_guesses_from_path
 from reaction_profile_generator.utils import work_in, xyz_to_gaussian_input
+from reaction_profile_generator.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
 
 # TODO: sort out issue with workdir!
 workdir = ['test']
-
-atom_dict = {1: 'H', 5: 'B', 6: 'C', 7: 'N', 8: 'O', 9: 'F', 14: 'Si', 15: 'P', 16: 'S', 17: 'Cl', 35: 'Br', 53: 'I'}
 
 
 def change_workdir(new_name):
@@ -45,12 +43,12 @@ def setup_dirs(target_dir):
         shutil.rmtree(target_dir)
     os.mkdir(target_dir)
     os.mkdir(f'{target_dir}/final_ts_guesses')
-    os.mkdir(f'{target_dir}/g16_input_files')
+    os.mkdir(f'{target_dir}/g16_work_dir')
 
     return target_dir
 
 
-def print_statistics_guess_generation(successful_reactions, start_time):
+def print_statistics(successful_reactions, start_time):
     end_time = time.time()
     print(f'Successful reactions: {successful_reactions}')
     print(f'Number of successful reactions: {len(successful_reactions)}')
@@ -59,10 +57,13 @@ def print_statistics_guess_generation(successful_reactions, start_time):
 
 def generate_gaussian_inputs(target_dir, method='external="../xtb_external.py"', basis_set='', 
                              extra_commands='opt=(ts, calcall, noeigen, nomicro)'):
-    for file in os.listdir(f'{target_dir}/final_ts_guesses'):
-        xyz_file = os.path.join(f'{target_dir}/final_ts_guesses', file)
-        output_file = os.path.join(f'{target_dir}/g16_input_files', f'{file.split(".xyz")[0]}.com')
-        xyz_to_gaussian_input(xyz_file, output_file, method=method, basis_set=basis_set, extra_commands=extra_commands)
+    for dir in os.listdir(f'{target_dir}/final_ts_guesses'):
+        if dir not in os.listdir(f'{target_dir}/g16_work_dir'):
+            os.makedirs(f'{target_dir}/g16_work_dir/{dir}')
+        for file in os.listdir(f'{target_dir}/final_ts_guesses/{dir}'):
+            xyz_file = os.path.join(f'{target_dir}/final_ts_guesses/{dir}', file)
+            output_file = os.path.join(f'{target_dir}/g16_work_dir/{dir}', f'{file.split(".xyz")[0]}.com')
+            xyz_to_gaussian_input(xyz_file, output_file, method=method, basis_set=basis_set, extra_commands=extra_commands)
 
 
 def process_reaction(args):
@@ -77,10 +78,10 @@ def process_reaction(args):
     
     change_workdir(f'{target_dir}/reaction_{idx}')
 
-    try:
-        ts_guesses_found = obtain_ts_guess(smiles_string, reactive_complex_factor, freq_cut_off)
-    except Exception as e:
-        print(f'Error processing reaction {idx}: {str(e)}')
+    #try:
+    ts_guesses_found = obtain_ts_guess(smiles_string, reactive_complex_factor, freq_cut_off)
+    #except Exception as e:
+    #    print(f'Error processing reaction {idx}: {str(e)}')
     
     if ts_guesses_found:
         print(f'TS guess found for {smiles_string}')
@@ -90,7 +91,7 @@ def process_reaction(args):
         return None
 
 
-def get_guesses_from_smiles_list(reaction_list, reactive_complex_factor, freq_cut_off):
+def get_guesses_from_smiles_list(reaction_list, reactive_complex_factor, freq_cut_off, start_time):
     successful_reactions = []
     print(f'{len(reaction_list)} reactions to process')
 
@@ -108,30 +109,30 @@ def get_guesses_from_smiles_list(reaction_list, reactive_complex_factor, freq_cu
     pool.join()
 
     successful_reactions = [r for r in results if r is not None]
-    print_statistics_guess_generation(successful_reactions, start_time)
 
-    #print("Successful reactions:", [r for r in results if r is not None])
+    print_statistics(successful_reactions, start_time)
 
     return successful_reactions
 
 
 def run_gaussian_jobs(folder):
-    g16_work_dir = os.path.join(folder, 'g16_input_files')
+    g16_work_dir = os.path.join(folder, 'g16_work_dir')
 
-    for filename in os.listdir(g16_work_dir):
-        if filename.endswith(".com"):
-            file_path = os.path.join(g16_work_dir, filename)
+    for dir in os.lisdir(g16_work_dir):
+        for filename in os.listdir(os.path.join(g16_work_dir, dir)):
+            if filename.endswith(".com"):
+                file_path = os.path.join(os.path.join(g16_work_dir, dir), filename)
             
-            if not os.path.exists(file_path):
-                print(f"No Gaussian input file found in the folder: {g16_work_dir}")
-                return 1
+                if not os.path.exists(file_path):
+                    print(f"No Gaussian input file found in the folder: {g16_work_dir}")
+                    return 1
             
-            # Run Gaussian 16 using nohup and redirect stderr to /dev/null
-            log_file = os.path.splitext(file_path)[0] + ".log"
-            out_file = os.path.splitext(file_path)[0] + ".out"
-            with open(out_file, 'w') as out:
+                # Run Gaussian 16 using nohup and redirect stderr to /dev/null
+                log_file = os.path.splitext(file_path)[0] + ".log"
+                out_file = os.path.splitext(file_path)[0] + ".out"
+                with open(out_file, 'w') as out:
                     subprocess.run(
-                        "g16 < {} >> {}".format(os.path.join(g16_work_dir, filename), log_file),
+                        "g16 < {} >> {}".format(os.path.join(os.path.join(g16_work_dir, filename), dir), log_file),
                         shell=True,
                         stdout=out,
                         stderr=out,
@@ -187,6 +188,33 @@ def write_final_geometry_to_xyz(log_file_path):
     return xyz_file_path
 
 
+def confirm_opt_transition_states(target_dir):
+    successful_reactions_final = []
+
+    for directory in f'{target_dir}/g16_work_dir':
+        output_file_list = sorted([f'{target_dir}/g16_work_dir/{directory}/{file}' 
+                            for file in os.listdir(f'{target_dir}/g16_work_dir/{directory}') 
+                            if file.endswith('.log')])
+        for file_path in output_file_list:
+            extract_transition_state_geometry(file_path, f'{file_path[:-4]}.xyz')
+            generate_gaussian_irc_input(f'{file_path[:-4]}.xyz', method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
+            # run_irc()
+            extract_irc_geometries(f'{target_dir}/g16_work_dir/{directory}/irc_calc.log')
+            reaction_correct = compare_molecules_irc(
+                f'{target_dir}/g16_work_dir/{directory}/irc_calc_forward.xyz',
+                f'{target_dir}/g16_work_dir/{directory}/irc_calc_reverse.xyz'
+                None, None
+            ) # TODO: copy the final geometries of the path calculation somewhere so that you can easily access them here
+            
+            if reaction_correct:
+                successful_reactions_final.append(directory)
+                break
+            else:
+                continue
+    
+    return successful_reactions_final
+
+            
 if __name__ == "__main__":
     # settings
     reactive_complex_factor = 2.0
@@ -195,15 +223,17 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dirs(f'benchmarking_{reactive_complex_factor}_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)
+    reaction_list = get_reaction_list(input_file)[:3]
     start_time = time.time()
 
     # get all guesses
-    successful_reactions = get_guesses_from_smiles_list(reaction_list, reactive_complex_factor=reactive_complex_factor, freq_cut_off=freq_cut_off)
+    successful_reactions = get_guesses_from_smiles_list(reaction_list, reactive_complex_factor=reactive_complex_factor, freq_cut_off=freq_cut_off, start_time=start_time)
 
     generate_gaussian_inputs(target_dir, method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"', basis_set='', 
                              extra_commands='opt=(ts, calcall, noeigen, nomicro)')
 
     #run_gaussian_jobs(target_dir)
 
-    #confirm_opt_transition_states(target_dir, freq_cut_off)
+    #successful_reactions_final = confirm_opt_transition_states(target_dir)
+
+    #print_statistics(successful_reactions_final)

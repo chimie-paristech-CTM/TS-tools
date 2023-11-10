@@ -153,15 +153,11 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
     true_energies = list(np.array(energies) - np.array(potentials))
     indices_prelim_ts_guesses = find_local_max_indices(true_energies)
 
-    print(true_energies)
-
     ts_guess_dict = {}
     for index in indices_prelim_ts_guesses:
         ts_guess_file, freq = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
         if ts_guess_file is not None:
             ts_guess_dict[ts_guess_file] = freq
-
-    print(ts_guess_dict)
     
     if len(ts_guess_dict) == 0:
         return False
@@ -171,6 +167,7 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
     ranked_guess_files = [item[0] for item in sorted_guess_dict]
 
     for index, guess_file in enumerate(ranked_guess_files):
+        print(index, guess_file)
         move_final_guess_xyz(guess_file, index)
 
     return True
@@ -187,12 +184,16 @@ def move_final_guess_xyz(ts_guess_file, index):
     Returns:
         None
     """
-    path_name = '/'.join(os.getcwd().split('/')[:-1])
+    path_name = os.path.join('/'.join(os.getcwd().split('/')[:-1]), 'final_ts_guesses')
     reaction_name = os.getcwd().split('/')[-1]
-    shutil.copy(ts_guess_file, os.path.join(path_name, 'final_ts_guesses'))
+
+    if reaction_name not in os.listdir(path_name):
+        os.makedirs(os.path.join(path_name, reaction_name))
+
+    shutil.copy(ts_guess_file, os.path.join(path_name, reaction_name))
     os.rename(
-        os.path.join(os.path.join(path_name, 'final_ts_guesses'), ts_guess_file.split('/')[-1]), 
-        os.path.join(os.path.join(path_name, 'final_ts_guesses'), f'{reaction_name}_final_ts_guess_{index}.xyz')
+        os.path.join(os.path.join(path_name, reaction_name), ts_guess_file.split('/')[-1]), 
+        os.path.join(os.path.join(path_name, reaction_name), f'ts_guess_{index}.xyz')
     )
 
 
