@@ -44,6 +44,7 @@ def setup_dirs(target_dir):
     os.mkdir(target_dir)
     os.mkdir(f'{target_dir}/final_ts_guesses')
     os.mkdir(f'{target_dir}/g16_work_dir')
+    os.mkdir(f'{target_dir}/rp_geometries')
 
     return target_dir
 
@@ -202,9 +203,10 @@ def confirm_opt_transition_states(target_dir):
             extract_irc_geometries(f'{target_dir}/g16_work_dir/{directory}/irc_calc.log')
             reaction_correct = compare_molecules_irc(
                 f'{target_dir}/g16_work_dir/{directory}/irc_calc_forward.xyz',
-                f'{target_dir}/g16_work_dir/{directory}/irc_calc_reverse.xyz'
-                None, None
-            ) # TODO: copy the final geometries of the path calculation somewhere so that you can easily access them here
+                f'{target_dir}/g16_work_dir/{directory}/irc_calc_reverse.xyz',
+                f'{target_dir}/rp_geometries/{directory}/reactants_geometry.xyz', 
+                f'{target_dir}/rp_geometries/{directory}/products_geometry.xyz'
+            )
             
             if reaction_correct:
                 successful_reactions_final.append(directory)

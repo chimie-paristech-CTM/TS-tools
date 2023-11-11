@@ -133,6 +133,7 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
                 path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
                 guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
                     charge, freq_cut_off=freq_cut_off)
+                save_rp_geometries(atoms, coords)
                 
                 if guesses_found:
                     return True
@@ -168,14 +169,14 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
 
     for index, guess_file in enumerate(ranked_guess_files):
         print(index, guess_file)
-        move_final_guess_xyz(guess_file, index)
+        copy_final_guess_xyz(guess_file, index)
 
     return True
 
 
-def move_final_guess_xyz(ts_guess_file, index):
+def copy_final_guess_xyz(ts_guess_file, index):
     """
-    Moves the final transition state guess XYZ file to a designated folder and renames it.
+    Copies the final transition state guess XYZ file to a designated folder and renames it.
 
     Args:
         ts_guess_file (str): Path to the transition state guess XYZ file.
@@ -196,6 +197,17 @@ def move_final_guess_xyz(ts_guess_file, index):
         os.path.join(os.path.join(path_name, reaction_name), f'ts_guess_{index}.xyz')
     )
 
+
+def save_rp_geometries(atoms, coords):
+    path_name = os.path.join('/'.join(os.getcwd().split('/')[:-1]), 'rp_geometries')
+    reaction_name = os.getcwd().split('/')[-1]
+
+    if reaction_name not in os.listdir(path_name):
+        os.makedirs(os.path.join(path_name, reaction_name))
+    
+    write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(os.path.join(path_name, reaction_name), 'reactants_geometry.xyz'))
+    write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(os.path.join(path_name, reaction_name), 'product_geometry.xyz'))
+    
 
 def find_local_max_indices(numbers):
     local_max_indices = []
@@ -454,7 +466,7 @@ def get_profile_for_biased_optimization(conformer, formation_constraints, force_
             valid_energies.append(all_energies[i])
 
     potentials = determine_potential(valid_coords, formation_constraints, force_constant)
-    write_xyz_file_from_atoms_and_coords(valid_atoms[-1], valid_coords[-1], 'product_geometry_obtained.xyz')
+    # write_xyz_file_from_atoms_and_coords(valid_atoms[-1], valid_coords[-1], 'product_geometry_obtained.xyz')
 
     return valid_energies, valid_coords, valid_atoms, potentials
 
