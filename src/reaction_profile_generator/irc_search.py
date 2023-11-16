@@ -1,5 +1,6 @@
 import re
 import autode as ade
+import os
 
 atomic_number_to_symbol = {
     1: 'H',  2: 'He',  3: 'Li',  4: 'Be',  5: 'B',
@@ -21,6 +22,7 @@ atomic_number_to_symbol = {
     81: 'Tl', 82: 'Pb', 83: 'Bi', 84: 'Po', 85: 'At',
     86: 'Rn'
 }
+
 
 def extract_irc_geometries(log_path):
     geometry_start_pattern = re.compile(r'^\s*Cartesian Coordinates \(Ang\):\s*$')
@@ -128,14 +130,15 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
 
     # Define the Gaussian input file content
     if 'external' not in method:
-        input_content = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=100, stepsize=5) {method}' \
+        input_content = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=30, stepsize=10) {method}' \
             f'\n\nIRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n' 
     else:
-        input_content = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=100, stepsize=5) {method}\n\n' \
+        input_content = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=30, stepsize=10) {method}\n\n' \
             f'IRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n' 
 
     # Write the input content to a Gaussian input file
-    input_filename = f'{output_prefix}.com'
+    input_filename = os.path.join(os.path.dirname(xyz_file), f'{output_prefix}.com')
+    print(input_filename)
     with open(input_filename, 'w') as input_file:
         input_file.write(input_content)
 

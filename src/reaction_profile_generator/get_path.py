@@ -8,7 +8,6 @@ from autode.conformers import conf_gen, Conformer
 from scipy.spatial import distance_matrix
 import copy
 import subprocess
-from itertools import combinations
 import re
 import shutil
 import random
@@ -48,7 +47,7 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
 
     formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol) 
 
-    # if more bonds are broken than formed, then reverse the reaction
+    # If more bonds are broken than formed, then reverse the reaction
     if len(formed_bonds) < len(broken_bonds):
         full_reactant_mol = Chem.MolFromSmiles(product_smiles, ps)
         full_product_mol = Chem.MolFromSmiles(reactant_smiles, ps)
@@ -65,42 +64,109 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
     formation_bonds_to_stretch = set(formation_constraints.keys()) - set(breaking_constraints.keys())
     breaking_bonds_to_stretch = set(breaking_constraints.keys()) - set(formation_constraints.keys())
 
-    counter = 0 # set a counter to be able to break off the force_constant scan
-    for force_constant in [0.005, 0.01, 0.02, 0.05, 0.07, 0.1, 0.15, 0.20, 0.25, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]:
-        #print(f'Currently attempting AFIR optimization with a force constant of {force_constant}...')
-        # Re-initialize the stretching parameters
-        formation_constraints_tmp = formation_constraints.copy()
-        formation_constraints_stretched = formation_constraints.copy()
-        breaking_constraints_stretched = breaking_constraints.copy()
+    print(formation_constraints.keys(), breaking_constraints.keys())
+    print(formation_bonds_to_stretch)
 
-        for _ in range(3):
-            formation_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
-                                                   for x,y in formation_constraints_tmp.items() if x in formation_bonds_to_stretch)
+    # Determine a crude force constant range that can subsequently be refined
+    start_force_constant, end_force_constant = None, None
+    for force_constant in np.arange(0.05, 0.8, 0.05):
+        for _ in range(2):
+            optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
+                full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
+                breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict)
+            masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
 
-            # Combine constraints if multiple reactants
-            constraints = breaking_constraints.copy()
-            if len(reactant_smiles.split('.')) != 1:
-                for key, val in formation_constraints_stretched.items():
-                    #if key not in constraints:
-                    constraints[key] = val
-                    
-            # Generate initial optimized reactant mol and conformer with the correct stereochemistry
-            optimized_ade_reactant_mol, conformer_name = optimize_molecule_with_extra_constraints(
-                full_reactant_mol,
-                reactant_smiles,
-                constraints,
-                charge
+            _, _, _, potentials = get_profile_for_biased_optimization(
+                reactant_conformer_name,
+                formation_constraints,
+                force_constant,
+                inactive_bond_mask,
+                masked_dist_mat,
+                charge=charge,
+                solvent=solvent,
             )
+            if potentials[-1] < 0.01:
+                break
 
-            # Do the same on the product side, i.e. generate product complex conformer 
-            breaking_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
-                                                  for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
-            product_constraints = formation_constraints.copy()
-            if len(product_smiles.split('.')) != 1:
-                for key,val in breaking_constraints_stretched.items():
-                    product_constraints[key] = val
+        if potentials[-1] < 0.01:
+            end_force_constant = force_constant + 0.0025
+            start_force_constant = force_constant - 0.0475
+            break
+        else:
+            continue
 
-            _ = optimize_molecule_with_extra_constraints(
+    # Now do the actual refinement
+    if end_force_constant is not None:
+        for force_constant in np.arange(start_force_constant, end_force_constant, 0.0025):
+
+            for _ in range(5):
+                optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
+                full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
+                breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict)
+                masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
+
+                energies, coords, atoms, potentials = get_profile_for_biased_optimization(
+                    reactant_conformer_name,
+                    formation_constraints,
+                    force_constant,
+                    inactive_bond_mask,
+                    masked_dist_mat,
+                    charge=charge,
+                    solvent=solvent,
+                )
+                if potentials[-1] > 0.01:
+                    break  # Means that you haven't reached the products at the end of the biased optimization
+                else:
+                    path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
+                    guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
+                        charge, freq_cut_off=freq_cut_off)
+                    save_rp_geometries(atoms, coords)
+                
+                    if guesses_found:
+                        return True
+    
+    return False
+        
+    
+def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, 
+                               formation_bonds_to_stretch, breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict):
+    
+    formation_constraints_stretched = formation_constraints.copy()
+    breaking_constraints_stretched = breaking_constraints.copy()
+
+    formation_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y for x,y in formation_constraints.items() if x in formation_bonds_to_stretch}
+    breaking_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y for x,y in breaking_constraints.items() if x in breaking_bonds_to_stretch}
+    #formation_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
+    #                                               for x,y in formation_constraints.items() if x in formation_bonds_to_stretch)
+    #breaking_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
+    #                                              for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
+    
+    # Generate initial optimized reactant mol and conformer with the correct stereochemistry
+    constraints = {} #breaking_constraints.copy()
+    if len(reactant_smiles.split('.')) != 1:
+        for key,val in formation_constraints_stretched.items():
+            constraints[key] = val
+
+    print(formation_constraints_stretched)
+    print('loooooool')
+    print(breaking_constraints)
+
+    optimized_ade_reactant_mol, reactant_conformer_name = optimize_molecule_with_extra_constraints(
+        full_reactant_mol,
+        reactant_smiles,
+        #formation_constraints_stretched,
+        constraints,
+        charge
+    )
+
+    # Do the same on the product side, i.e. generate product complex conformer
+    # Combine constraints if multiple reactants
+    product_constraints = formation_constraints.copy()
+    if len(product_smiles.split('.')) != 1:
+        for key,val in breaking_constraints_stretched.items():
+            product_constraints[key] = val
+       
+    _ = optimize_molecule_with_extra_constraints(
                 full_reactant_mol,
                 product_smiles,
                 product_constraints,
@@ -109,60 +175,71 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
                 reordering_dict=full_reactant_dict,
                 extra_constraints=breaking_constraints
             )
+    
+    return optimized_ade_reactant_mol, reactant_conformer_name
 
-            # Store bond lengths for the inactive bonds and generate an inactive bond mask, which will be used to reject intermediate geometries 
-            # involving spuriously dissociated bonds
-            inactive_bonds = get_inactive_bonds(full_reactant_mol, full_product_mol)
-            dist_mat = distance_matrix(optimized_ade_reactant_mol.coordinates, optimized_ade_reactant_mol.coordinates)
-            inactive_bond_mask = get_inactive_bond_mask(inactive_bonds, len(optimized_ade_reactant_mol.coordinates), full_reactant_dict)
-            masked_dist_mat = 1.1 * dist_mat * inactive_bond_mask
+def get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict):
+    inactive_bonds = get_inactive_bonds(full_reactant_mol, full_product_mol)
+    dist_mat = distance_matrix(optimized_ade_reactant_mol.coordinates, optimized_ade_reactant_mol.coordinates)
+    inactive_bond_mask = get_inactive_bond_mask(inactive_bonds, len(optimized_ade_reactant_mol.coordinates), full_reactant_dict)
+    masked_dist_mat = 1.1 * dist_mat * inactive_bond_mask
 
-            energies, coords, atoms, potentials = get_profile_for_biased_optimization(
-                conformer_name,
-                formation_constraints,
-                force_constant,
-                inactive_bond_mask,
-                masked_dist_mat,
-                charge=charge,
-                solvent=solvent,
-            )
-
-            if potentials[-1] > 0.01:
-                break  # Means that you haven't reached the products at the end of the biased optimization
-            else:
-                path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
-                guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
-                    charge, freq_cut_off=freq_cut_off)
-                save_rp_geometries(atoms, coords)
-                
-                if guesses_found:
-                    return True
-        
-        # If no TS guess found after 3 scans with updated constraints, increment the counter
-        if potentials[-1] < 0.01:
-            counter += 1
-
-        # If after two scans with sufficiently big force constants, you still haven't found the TS -> break off the search
-        if counter == 3:
-            return False
-        
+    return masked_dist_mat, inactive_bond_mask
+   
 
 def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=150):
     """
     ...
     """
     true_energies = list(np.array(energies) - np.array(potentials))
-    indices_prelim_ts_guesses = find_local_max_indices(true_energies)
 
+    print(true_energies)
+
+    # Find local maxima in path
+    indices_local_maxima = find_local_max_indices(true_energies) # Assuming that your reactants are sufficiently separated at first
+    idx_local_maxima = [index for index, _ in enumerate(true_energies) 
+                             if index in indices_local_maxima and index not in [0, 1]]
+
+    print(idx_local_maxima)
+    # Validate the local maxima
+    idx_local_maxima_correct_mode = []
+    for index in idx_local_maxima:
+        path_file, freq = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
+        print(path_file, freq)
+        if path_file is not None:
+            idx_local_maxima_correct_mode.append(index)
+
+    # If none of the local maxima could potentially lie on the correct mode, abort
+    if len(idx_local_maxima_correct_mode) == 0:
+        return False
+
+    # Assuming that the TS is fairly close in energy to the highest local maximum of the path
+    local_maxima_correct_mode = [true_energies[idx] for idx in idx_local_maxima_correct_mode]    
+    candidate_ts_guesses = [index for index, energy in enumerate(true_energies) 
+                            if energy > max(local_maxima_correct_mode) - 0.025 
+                            and energy < max(local_maxima_correct_mode) + 0.005]
+
+    consecutive_candidate_ranges = find_consecutive_ranges(candidate_ts_guesses)
+
+    # First take all the local maxima with a reasonable energy
+    indices_prelim_ts_guesses = set(indices_local_maxima) & set(candidate_ts_guesses)
+
+    # Then look for stretches of indices and take the extremes
+    for candidate_range in consecutive_candidate_ranges:
+        indices_prelim_ts_guesses.add(candidate_range[0])
+        indices_prelim_ts_guesses.add(candidate_range[1])
+
+    # Validate the selected preliminary TS guesses and store their energy values
     ts_guess_dict = {}
     for index in indices_prelim_ts_guesses:
-        ts_guess_file, freq = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
+        ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
         if ts_guess_file is not None:
-            ts_guess_dict[ts_guess_file] = freq
+            ts_guess_dict[ts_guess_file] = true_energies[index]
     
     if len(ts_guess_dict) == 0:
         return False
 
+    # Sort guesses based on energy
     sorted_guess_dict = sorted(ts_guess_dict.items(), key=lambda x: x[1])
 
     ranked_guess_files = [item[0] for item in sorted_guess_dict]
@@ -172,6 +249,37 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
         copy_final_guess_xyz(guess_file, index)
 
     return True
+
+
+def find_consecutive_ranges(indices):
+    """
+    Identifies the endpoints of stretches of consecutive indices.
+
+    Parameters:
+    - indices: A list of integers representing indices.
+
+    Returns:
+    - A list of tuples where each tuple contains the start and end of a consecutive range.
+    """
+    if not indices:
+        return []
+
+    indices.sort()
+    consecutive_ranges = []
+    start = indices[0]
+    end = indices[0]
+
+    for i in range(1, len(indices)):
+        if indices[i] == end + 1:
+            end = indices[i]
+        else:
+            consecutive_ranges.append((start, end))
+            start = indices[i]
+            end = indices[i]
+
+    consecutive_ranges.append((start, end))
+
+    return consecutive_ranges
 
 
 def copy_final_guess_xyz(ts_guess_file, index):
@@ -206,7 +314,7 @@ def save_rp_geometries(atoms, coords):
         os.makedirs(os.path.join(path_name, reaction_name))
     
     write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(os.path.join(path_name, reaction_name), 'reactants_geometry.xyz'))
-    write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(os.path.join(path_name, reaction_name), 'product_geometry.xyz'))
+    write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(os.path.join(path_name, reaction_name), 'products_geometry.xyz'))
     
 
 def find_local_max_indices(numbers):

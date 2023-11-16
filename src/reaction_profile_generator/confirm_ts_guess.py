@@ -78,7 +78,7 @@ def extract_info_ts_file(ts_file, path, charge):
     # Check if main bond displacement in mode corresponds to active bond
     displacement_dict = {}
     for bond in all_bonds:
-        displacement_dict[bond] = delta_mode[bond[0],bond[1]]
+        displacement_dict[bond] = abs(delta_mode[bond[0],bond[1]])
     max_displacement_bond = max(displacement_dict, key=displacement_dict.get)
 
     if max_displacement_bond in active_bonds:
