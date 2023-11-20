@@ -24,34 +24,28 @@ atomic_number_to_symbol = {
 }
 
 
-def extract_irc_geometries(log_path):
+def extract_irc_geometries(log_path_forward, log_path_reverse):
+    geometry_block_forward = extract_geometry_block_from_irc(log_path_forward)
+    geometry_block_reverse = extract_geometry_block_from_irc(log_path_reverse)
+
+    write_geometry_block_to_xyz(geometry_block_forward, f'{log_path_forward[:-4]}.xyz', True)
+    write_geometry_block_to_xyz(geometry_block_reverse, f'{log_path_reverse[:-4]}.xyz', True)
+
+
+def extract_geometry_block_from_irc(log_path):
     geometry_start_pattern = re.compile(r'^\s*Cartesian Coordinates \(Ang\):\s*$')
     geometry_end_pattern = re.compile(r'^\s*CHANGE IN THE REACTION COORDINATE =\s*([+-]?\d*\.\d+)\s*$')
-    reverse_path_pattern = re.compile(r'^\s*Beginning calculation of the REVERSE path\.\s*$')
-
-    reverse_path_started = False
-
     with open(log_path, 'r') as log_file:
         lines = log_file.readlines()
 
         for i, line in enumerate(lines):
-            if reverse_path_pattern.match(line):
-                reverse_path_started = True
-            if not reverse_path_started and geometry_start_pattern.match(line.strip()):
-                geometry_block_forward_start_line = i + 5
-            if not reverse_path_started and geometry_end_pattern.search(line):
-                geometry_block_forward_end_line = i - 1
+            if geometry_start_pattern.match(line.strip()):
+                geometry_block_start_line = i + 5
+            if geometry_end_pattern.search(line):
+                geometry_block_end_line = i - 1
 
-            if reverse_path_started and geometry_start_pattern.match(line.strip()):
-                geometry_block_reverse_start_line = i + 5
-            if reverse_path_started and geometry_end_pattern.search(line):
-                geometry_block_reverse_end_line = i - 1
+    return lines[geometry_block_start_line:geometry_block_end_line] 
 
-    geometry_block_forward = lines[geometry_block_forward_start_line:geometry_block_forward_end_line]
-    geometry_block_reverse = lines[geometry_block_reverse_start_line:geometry_block_reverse_end_line]
-
-    write_geometry_block_to_xyz(geometry_block_forward, f'{log_path[:-4]}_forward.xyz', True)
-    write_geometry_block_to_xyz(geometry_block_reverse, f'{log_path[:-4]}_reverse.xyz', True)
 
 
 def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
@@ -111,6 +105,14 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
     reverse_mol = ade.Molecule(reverse_xyz, name='reverse', charge=charge)
     reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge)
     product_mol = ade.Molecule(product_xyz, name='product', charge=charge)
+
+    print(set(forward_mol.graph.edges))
+    print(set(reactant_mol.graph.edges))
+    print('')
+    print(set(reverse_mol.graph.edges))
+    print(set(product_mol.graph.edges))
+    print(set(forward_mol.graph.edges) == set(reactant_mol.graph.edges))
+    print(set(reverse_mol.graph.edges) == set(product_mol.graph.edges))
     if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges):
         return True
     elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges): 
@@ -130,28 +132,37 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
 
     # Define the Gaussian input file content
     if 'external' not in method:
-        input_content = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=30, stepsize=10) {method}' \
+        input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method}' \
+            f'\n\nIRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n'
+        input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method}' \
             f'\n\nIRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n' 
     else:
-        input_content = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=30, stepsize=10) {method}\n\n' \
+        input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method}\n\n' \
+            f'IRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n'
+        input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method}\n\n' \
             f'IRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n' 
 
-    # Write the input content to a Gaussian input file
-    input_filename = os.path.join(os.path.dirname(xyz_file), f'{output_prefix}.com')
-    print(input_filename)
-    with open(input_filename, 'w') as input_file:
-        input_file.write(input_content)
+    # Write the input content to a Gaussian input file -- forward
+    input_filename_f = os.path.join(os.path.dirname(xyz_file), f'{output_prefix}_forward.com')
+    with open(input_filename_f, 'w') as input_file:
+        input_file.write(input_content_f)
+    
+    # Write the input content to a Gaussian input file -- reverse
+    input_filename_r = os.path.join(os.path.dirname(xyz_file), f'{output_prefix}_reverse.com')
+    with open(input_filename_r, 'w') as input_file:
+        input_file.write(input_content_r)
 
-    return input_filename
+    return input_filename_f, input_filename_r
 
 if __name__ == '__main__':
     #path = '/Users/thijsstuyver/Desktop/reaction_profile_generator/benchmarking_2.0_200/final_ts_guesses/reaction_R100_final_ts_guess_0.xyz'
-    path = '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol.log'
-    extract_transition_state_geometry(path, f'{path[:-4]}.xyz')
-    generate_gaussian_irc_input(f'{path[:-4]}.xyz', method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
-    extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/test_irc.log')
-    reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/test_irc_forward.xyz', 
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/test_irc_reverse.xyz',
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/reactants.xyz', 
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/products.xyz')
+    #path = '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol.log'
+    #extract_transition_state_geometry(path, f'{path[:-4]}.xyz')
+    #generate_gaussian_irc_input(f'{path[:-4]}.xyz', method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
+    #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
+    #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
+    reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_1_irc_forward.xyz', 
+                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_1_irc_reverse.xyz',
+                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 
+                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
     print(reaction_correct)

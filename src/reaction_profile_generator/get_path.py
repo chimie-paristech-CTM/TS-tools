@@ -134,22 +134,16 @@ def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, f
     formation_constraints_stretched = formation_constraints.copy()
     breaking_constraints_stretched = breaking_constraints.copy()
 
-    formation_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y for x,y in formation_constraints.items() if x in formation_bonds_to_stretch}
-    breaking_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y for x,y in breaking_constraints.items() if x in breaking_bonds_to_stretch}
-    #formation_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
-    #                                               for x,y in formation_constraints.items() if x in formation_bonds_to_stretch)
-    #breaking_constraints_stretched.update((x, random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y) 
-    #                                              for x, y in breaking_constraints_stretched.items() if x in breaking_bonds_to_stretch)
+    formation_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y 
+                                       for x,y in formation_constraints.items() if x in formation_bonds_to_stretch}
+    breaking_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y 
+                                      for x,y in breaking_constraints.items() if x in breaking_bonds_to_stretch}
     
     # Generate initial optimized reactant mol and conformer with the correct stereochemistry
     constraints = {} #breaking_constraints.copy()
     if len(reactant_smiles.split('.')) != 1:
         for key,val in formation_constraints_stretched.items():
             constraints[key] = val
-
-    print(formation_constraints_stretched)
-    print('loooooool')
-    print(breaking_constraints)
 
     optimized_ade_reactant_mol, reactant_conformer_name = optimize_molecule_with_extra_constraints(
         full_reactant_mol,
@@ -198,14 +192,13 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
     # Find local maxima in path
     indices_local_maxima = find_local_max_indices(true_energies) # Assuming that your reactants are sufficiently separated at first
     idx_local_maxima = [index for index, _ in enumerate(true_energies) 
-                             if index in indices_local_maxima and index not in [0, 1]]
+                             if index in indices_local_maxima]
 
-    print(idx_local_maxima)
+
     # Validate the local maxima
     idx_local_maxima_correct_mode = []
     for index in idx_local_maxima:
-        path_file, freq = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
-        print(path_file, freq)
+        path_file, _ = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
         if path_file is not None:
             idx_local_maxima_correct_mode.append(index)
 
@@ -213,23 +206,26 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
     if len(idx_local_maxima_correct_mode) == 0:
         return False
 
-    # Assuming that the TS is fairly close in energy to the highest local maximum of the path
-    local_maxima_correct_mode = [true_energies[idx] for idx in idx_local_maxima_correct_mode]    
-    candidate_ts_guesses = [index for index, energy in enumerate(true_energies) 
-                            if energy > max(local_maxima_correct_mode) - 0.025 
-                            and energy < max(local_maxima_correct_mode) + 0.005]
+    print(idx_local_maxima)
 
-    consecutive_candidate_ranges = find_consecutive_ranges(candidate_ts_guesses)
+    # Assuming that the TS is fairly close in energy to the highest local maximum of the path
+    #local_maxima_correct_mode = [true_energies[idx] for idx in idx_local_maxima_correct_mode]    
+    #candidate_ts_guesses = [index for index, energy in enumerate(true_energies) 
+    #                        if energy > max(local_maxima_correct_mode) - 0.04 
+    #                        and energy < max(local_maxima_correct_mode) + 0.005]
+
+    #consecutive_candidate_ranges = find_consecutive_ranges(candidate_ts_guesses)
 
     # First take all the local maxima with a reasonable energy
-    indices_prelim_ts_guesses = set(indices_local_maxima) & set(candidate_ts_guesses)
+    #indices_prelim_ts_guesses = set(indices_local_maxima) & set(candidate_ts_guesses)
 
     # Then look for stretches of indices and take the extremes
-    for candidate_range in consecutive_candidate_ranges:
-        indices_prelim_ts_guesses.add(candidate_range[0])
-        indices_prelim_ts_guesses.add(candidate_range[1])
+    #for candidate_range in consecutive_candidate_ranges:
+    #    indices_prelim_ts_guesses.add(candidate_range[0])
+    #    indices_prelim_ts_guesses.add(candidate_range[1])
 
     # Validate the selected preliminary TS guesses and store their energy values
+    indices_prelim_ts_guesses = [true_energies[idx] for idx in idx_local_maxima_correct_mode]
     ts_guess_dict = {}
     for index in indices_prelim_ts_guesses:
         ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
@@ -245,7 +241,6 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
     ranked_guess_files = [item[0] for item in sorted_guess_dict]
 
     for index, guess_file in enumerate(ranked_guess_files):
-        print(index, guess_file)
         copy_final_guess_xyz(guess_file, index)
 
     return True

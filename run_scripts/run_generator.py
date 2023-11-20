@@ -119,27 +119,63 @@ def get_guesses_from_smiles_list(reaction_list, reactive_complex_factor, freq_cu
 def run_gaussian_jobs(folder):
     g16_work_dir = os.path.join(folder, 'g16_work_dir')
 
+    successful_ts = []
     for directory in os.listdir(g16_work_dir):
-        for filename in os.listdir(os.path.join(g16_work_dir, directory)):
-            if filename.endswith(".com"):
-                file_path = os.path.join(os.path.join(g16_work_dir, directory), filename)
+        ts_input_files_list = [filename for filename in os.listdir(os.path.join(g16_work_dir, directory)) if filename.endswith(".com")]
+        sorted_ts_input_files_list = sorted(ts_input_files_list)
+
+        for filename in sorted_ts_input_files_list:
+            file_path = os.path.join(os.path.join(g16_work_dir, directory), filename)
             
-                if not os.path.exists(file_path):
-                    print(f"No Gaussian input file found in the folder: {g16_work_dir}")
-                    return 1
+            if not os.path.exists(file_path):
+                print(f"No Gaussian input file found in the folder: {g16_work_dir}")
+                break
             
-                # Run Gaussian 16 using nohup and redirect stderr to /dev/null
-                log_file = os.path.splitext(file_path)[0] + ".log"
-                out_file = os.path.splitext(file_path)[0] + ".out"
+            # Run Gaussian 16 using nohup and redirect stderr to /dev/null
+            log_file = os.path.splitext(file_path)[0] + ".log"
+            out_file = os.path.splitext(file_path)[0] + ".out"
                 
-                with open(out_file, 'w') as out:
-                    with open(log_file, 'w') as log:
-                        subprocess.run(
-                            f"g16 < {file_path} > {log_file}",
-                            shell=True,
-                            stdout=out,
-                            stderr=log,
-                        )
+            with open(out_file, 'w') as out:
+                subprocess.run(
+                    f"g16 < {file_path} > {log_file}",
+                    shell=True,
+                    stdout=out,
+                    stderr=subprocess.DEVNULL,
+                ) 
+
+            success = confirm_opt_transition_state(log_file, folder, directory)
+
+            print(log_file, success)
+            if success:
+                successful_ts.append(log_file)
+                break
+
+    return successful_ts
+
+
+def confirm_opt_transition_state(log_file, target_dir, directory):
+    try:
+        extract_transition_state_geometry(log_file, f'{log_file[:-4]}.xyz')
+        irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(f'{log_file[:-4]}.xyz', output_prefix=f'{log_file.split("/")[-1][:-4]}_irc',
+            method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
+        print(irc_input_file_f, irc_input_file_r)
+        run_irc(irc_input_file_f)
+        run_irc(irc_input_file_r)
+        extract_irc_geometries(f'{irc_input_file_f[:-4]}.log', f'{irc_input_file_r[:-4]}.log')
+        #extract_irc_geometries(f'{target_dir}/g16_work_dir/{directory}/{irc_input_file_f[:-4]}.log',
+        #                       f'{target_dir}/g16_work_dir/{directory}/{irc_input_file_r[:-4]}.log')
+        reaction_correct = compare_molecules_irc(
+            f'{irc_input_file_f[:-4]}.xyz',
+            f'{irc_input_file_r[:-4]}.xyz',
+            f'{target_dir}/rp_geometries/{directory}/reactants_geometry.xyz', 
+            f'{target_dir}/rp_geometries/{directory}/products_geometry.xyz'
+        )
+        if reaction_correct:
+            return True
+        else:
+            return False
+    except:
+        return False
 
 
 def write_final_geometry_to_xyz(log_file_path):
@@ -191,61 +227,28 @@ def write_final_geometry_to_xyz(log_file_path):
     return xyz_file_path
 
 
-def run_irc(input_file, dir_path):
+def run_irc(input_file):
     out_file = f'{input_file[:-4]}.out'
     log_file = f'{input_file[:-4]}.log'
 
     with open(out_file, 'w') as out:
-        with open(log_file, 'w') as log:
-            subprocess.run(
-                f"g16 < {input_file} >> {log_file}",
-                shell=True,
-                stdout=out,
-                stderr=log,
-            )
-
-
-def confirm_opt_transition_states(target_dir):
-    successful_reactions_final = []
-
-    for directory in os.listdir(f'{target_dir}/g16_work_dir'):
-        output_file_list = sorted([f'{target_dir}/g16_work_dir/{directory}/{file}' 
-                            for file in os.listdir(f'{target_dir}/g16_work_dir/{directory}') 
-                            if file.endswith('.log')])
-        for file_path in output_file_list:
-            try:
-                extract_transition_state_geometry(file_path, f'{file_path[:-4]}.xyz')
-                irc_input_file = generate_gaussian_irc_input(f'{file_path[:-4]}.xyz', 
-                    method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
-                run_irc(irc_input_file, f'{target_dir}/g16_work_dir/{directory}')
-                extract_irc_geometries(f'{target_dir}/g16_work_dir/{directory}/irc_calc.log')
-                reaction_correct = compare_molecules_irc(
-                    f'{target_dir}/g16_work_dir/{directory}/irc_calc_forward.xyz',
-                    f'{target_dir}/g16_work_dir/{directory}/irc_calc_reverse.xyz',
-                    f'{target_dir}/rp_geometries/{directory}/reactants_geometry.xyz', 
-                    f'{target_dir}/rp_geometries/{directory}/products_geometry.xyz'
-                )
-            except:
-                continue
-            
-            if reaction_correct:
-                successful_reactions_final.append(directory)
-                break
-            else:
-                continue
-    
-    return successful_reactions_final
+        subprocess.run(
+            f"g16 < {input_file} >> {log_file}",
+            shell=True,
+            stdout=out,
+            stderr=subprocess.DEVNULL,
+        )
 
             
 if __name__ == "__main__":
     # settings
-    reactive_complex_factor = 2.4
-    freq_cut_off = 200
+    reactive_complex_factor = 2.5
+    freq_cut_off = 150
 
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dirs(f'benchmarking_{reactive_complex_factor}_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)[:8]
+    reaction_list = get_reaction_list(input_file)[23:24]
     start_time = time.time()
 
     # get all guesses
@@ -254,8 +257,8 @@ if __name__ == "__main__":
     generate_gaussian_inputs(target_dir, method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"', basis_set='', 
                              extra_commands='opt=(ts, calcall, noeigen, nomicro)')
 
-    run_gaussian_jobs(target_dir) #TODO: split this up so that you first do all main TS guesses in full before proceeding to the next    
+    successful_reactions_final = run_gaussian_jobs(target_dir) #TODO: split this up so that you first do all main TS guesses in full before proceeding to the next    
 
-    successful_reactions_final = confirm_opt_transition_states(target_dir)
+    print_statistics(successful_reactions_final, start_time)
 
-    #print_statistics(successful_reactions_final, start_time)
+    #successful_reactions_final = confirm_opt_transition_states(target_dir)
