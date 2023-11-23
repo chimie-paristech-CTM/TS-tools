@@ -1,6 +1,8 @@
 import re
 import autode as ade
 import os
+#from scipy.spatial import distance_matrix
+from autode.mol_graphs import make_graph
 
 atomic_number_to_symbol = {
     1: 'H',  2: 'He',  3: 'Li',  4: 'Be',  5: 'B',
@@ -45,7 +47,6 @@ def extract_geometry_block_from_irc(log_path):
                 geometry_block_end_line = i - 1
 
     return lines[geometry_block_start_line:geometry_block_end_line] 
-
 
 
 def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
@@ -100,25 +101,27 @@ def extract_transition_state_geometry(log_path, output_xyz_path):
     print(f'Transition state geometry extracted and saved to {output_xyz_path}.')
 
 
+def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol):
+    for mol in [forward_mol, reverse_mol, reactant_mol, product_mol]:
+        make_graph(mol, rel_tolerance = rel_tolerance)
+
+    return forward_mol, reverse_mol, reactant_mol, product_mol 
+
+
 def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0):
     forward_mol = ade.Molecule(forward_xyz, name='forward', charge=charge)
     reverse_mol = ade.Molecule(reverse_xyz, name='reverse', charge=charge)
     reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge)
     product_mol = ade.Molecule(product_xyz, name='product', charge=charge)
 
-    print(set(forward_mol.graph.edges))
-    print(set(reactant_mol.graph.edges))
-    print('')
-    print(set(reverse_mol.graph.edges))
-    print(set(product_mol.graph.edges))
-    print(set(forward_mol.graph.edges) == set(reactant_mol.graph.edges))
-    print(set(reverse_mol.graph.edges) == set(product_mol.graph.edges))
-    if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges):
-        return True
-    elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges): 
-        return True
-    else:
-        return False
+    for rel_tolerance in [0.3, 0.25, 0.20, 0.15, 0.10]:
+        forward_mol, reverse_mol, reactant_mol, product_mol = update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol)
+        if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges):
+            return True
+        elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges): 
+            return True
+        else:
+            continue
 
 
 def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LYP/6-31G*', 
@@ -161,8 +164,8 @@ if __name__ == '__main__':
     #generate_gaussian_irc_input(f'{path[:-4]}.xyz', method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
     #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
     #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
-    reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_1_irc_forward.xyz', 
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_1_irc_reverse.xyz',
+    reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_forward.xyz', 
+                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_reverse.xyz',
                           '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 
                           '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
     print(reaction_correct)
