@@ -56,9 +56,9 @@ def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
         for line in geometry_block:
             split_line = line.split()
             if irc:
-                xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[2])} {float(split_line[3])} {float(split_line[4])}\n')
+                xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[2]):.6f} {float(split_line[3]):.6f} {float(split_line[4]):.6f}\n')
             else:
-                xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[3])} {float(split_line[4])} {float(split_line[5])}\n')
+                xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[3]):.6f} {float(split_line[4]):.6f} {float(split_line[5]):.6f}\n')
 
 
     # iterate through lines, each time update block until you reach backward direction, then do the same and return both xyz files

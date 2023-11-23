@@ -162,8 +162,6 @@ def confirm_opt_transition_state(log_file, target_dir, directory):
         run_irc(irc_input_file_f)
         run_irc(irc_input_file_r)
         extract_irc_geometries(f'{irc_input_file_f[:-4]}.log', f'{irc_input_file_r[:-4]}.log')
-        #extract_irc_geometries(f'{target_dir}/g16_work_dir/{directory}/{irc_input_file_f[:-4]}.log',
-        #                       f'{target_dir}/g16_work_dir/{directory}/{irc_input_file_r[:-4]}.log')
         reaction_correct = compare_molecules_irc(
             f'{irc_input_file_f[:-4]}.xyz',
             f'{irc_input_file_r[:-4]}.xyz',
@@ -248,7 +246,7 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dirs(f'benchmarking_{reactive_complex_factor}_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)[23:24]
+    reaction_list = get_reaction_list(input_file)[21:23]
     start_time = time.time()
 
     # get all guesses

@@ -45,7 +45,7 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
 
     charge = Chem.GetFormalCharge(full_reactant_mol)
 
-    formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol) 
+    formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol) # atom map numbers are used here 
 
     # If more bonds are broken than formed, then reverse the reaction
     if len(formed_bonds) < len(broken_bonds):
@@ -55,17 +55,25 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
 
     # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
+    reverse_full_reactant_dict = {atom.GetIdx(): atom.GetAtomMapNum() for atom in full_reactant_mol.GetAtoms()}
 
     # Get the constraints for the initial FF conformer search
-    formation_constraints = get_optimal_distances(product_smiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
-    breaking_constraints = get_optimal_distances(reactant_smiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
+    owning_dict_rsmiles = get_owning_mol_dict(reactant_smiles)
+    owning_dict_psmiles = get_owning_mol_dict(product_smiles)
 
-    # Determine bonds to stretch -- reactants & products
-    formation_bonds_to_stretch = set(formation_constraints.keys()) - set(breaking_constraints.keys())
-    breaking_bonds_to_stretch = set(breaking_constraints.keys()) - set(formation_constraints.keys())
+    formation_constraints = get_optimal_distances(product_smiles, owning_dict_psmiles, full_reactant_dict, formed_bonds, solvent=solvent, charge=charge)
+    breaking_constraints = get_optimal_distances(reactant_smiles, owning_dict_rsmiles, full_reactant_dict, broken_bonds, solvent=solvent, charge=charge)
 
-    print(formation_constraints.keys(), breaking_constraints.keys())
-    print(formation_bonds_to_stretch)
+    # Determine bonds to stretch -- reactants & products #TODO: don't fix bond lengths within the individual molecules themselves
+    formation_bonds_to_stretch = set()
+    for bond in set(formation_constraints.keys()) - set(breaking_constraints.keys()):
+        if owning_dict_rsmiles[reverse_full_reactant_dict[bond[0]]] != owning_dict_rsmiles[reverse_full_reactant_dict[bond[1]]]:
+            formation_bonds_to_stretch.add(bond)
+
+    breaking_bonds_to_stretch = set()
+    for bond in set(breaking_constraints.keys()) - set(formation_constraints.keys()):
+        if owning_dict_psmiles[reverse_full_reactant_dict[bond[0]]] != owning_dict_psmiles[reverse_full_reactant_dict[bond[1]]]:
+            breaking_bonds_to_stretch.add(bond)
 
     # Determine a crude force constant range that can subsequently be refined
     start_force_constant, end_force_constant = None, None
@@ -130,15 +138,12 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
     
 def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, 
                                formation_bonds_to_stretch, breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict):
-    
-    formation_constraints_stretched = formation_constraints.copy()
-    breaking_constraints_stretched = breaking_constraints.copy()
 
     formation_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y 
                                        for x,y in formation_constraints.items() if x in formation_bonds_to_stretch}
     breaking_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y 
                                       for x,y in breaking_constraints.items() if x in breaking_bonds_to_stretch}
-    
+
     # Generate initial optimized reactant mol and conformer with the correct stereochemistry
     constraints = {} #breaking_constraints.copy()
     if len(reactant_smiles.split('.')) != 1:
@@ -191,43 +196,25 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
 
     # Find local maxima in path
     indices_local_maxima = find_local_max_indices(true_energies) # Assuming that your reactants are sufficiently separated at first
-    idx_local_maxima = [index for index, _ in enumerate(true_energies) 
-                             if index in indices_local_maxima]
 
 
     # Validate the local maxima
     idx_local_maxima_correct_mode = []
-    for index in idx_local_maxima:
+    for index in indices_local_maxima:
         path_file, _ = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
         if path_file is not None:
             idx_local_maxima_correct_mode.append(index)
+
+    print(indices_local_maxima)
+    print(idx_local_maxima_correct_mode)
 
     # If none of the local maxima could potentially lie on the correct mode, abort
     if len(idx_local_maxima_correct_mode) == 0:
         return False
 
-    print(idx_local_maxima)
-
-    # Assuming that the TS is fairly close in energy to the highest local maximum of the path
-    #local_maxima_correct_mode = [true_energies[idx] for idx in idx_local_maxima_correct_mode]    
-    #candidate_ts_guesses = [index for index, energy in enumerate(true_energies) 
-    #                        if energy > max(local_maxima_correct_mode) - 0.04 
-    #                        and energy < max(local_maxima_correct_mode) + 0.005]
-
-    #consecutive_candidate_ranges = find_consecutive_ranges(candidate_ts_guesses)
-
-    # First take all the local maxima with a reasonable energy
-    #indices_prelim_ts_guesses = set(indices_local_maxima) & set(candidate_ts_guesses)
-
-    # Then look for stretches of indices and take the extremes
-    #for candidate_range in consecutive_candidate_ranges:
-    #    indices_prelim_ts_guesses.add(candidate_range[0])
-    #    indices_prelim_ts_guesses.add(candidate_range[1])
-
     # Validate the selected preliminary TS guesses and store their energy values
-    indices_prelim_ts_guesses = [true_energies[idx] for idx in idx_local_maxima_correct_mode]
     ts_guess_dict = {}
-    for index in indices_prelim_ts_guesses:
+    for index in idx_local_maxima_correct_mode: #indices_prelim_ts_guesses:
         ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
         if ts_guess_file is not None:
             ts_guess_dict[ts_guess_file] = true_energies[index]
@@ -236,7 +223,7 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
         return False
 
     # Sort guesses based on energy
-    sorted_guess_dict = sorted(ts_guess_dict.items(), key=lambda x: x[1])
+    sorted_guess_dict = sorted(ts_guess_dict.items(), key=lambda x: x[1], reverse=True)
 
     ranked_guess_files = [item[0] for item in sorted_guess_dict]
 
@@ -339,26 +326,27 @@ def get_inactive_bonds(reactant_mol, product_mol):
     return inactive_bonds
 
 
-def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
-    """
-    Calculate the optimal distances for a set of bonds in a molecule.
-
-    Args:
-        smiles (str): SMILES representation of the molecule.
-        mapnum_dict (dict): Dictionary mapping atom map numbers to atom indices.
-        bonds (list): List of bond strings.
-        solvent (str, optional): Name of the solvent. Defaults to None.
-        charge (int, optional): Charge of the molecule. Defaults to 0.
-
-    Returns:
-        dict: Dictionary mapping bond indices to their corresponding optimal distances.
-    """
+def get_owning_mol_dict(smiles):
     mols = [Chem.MolFromSmiles(smi, ps) for smi in smiles.split('.')]
     owning_mol_dict = {}
     for idx, mol in enumerate(mols):
         for atom in mol.GetAtoms():
             owning_mol_dict[atom.GetAtomMapNum()] = idx
 
+    return owning_mol_dict
+
+
+def get_optimal_distances(smiles, owning_mol_dict, mapnum_dict, bonds, solvent=None, charge=0):
+    """
+    Calculate the optimal distances for a set of bonds in a molecule.
+
+    Args:
+        ...
+
+    Returns:
+        dict: Dictionary mapping bond indices to their corresponding optimal distances.
+    """
+    mols = [Chem.MolFromSmiles(smi, ps) for smi in smiles.split('.')]
     optimal_distances = {}
 
     for bond in bonds:
@@ -379,14 +367,14 @@ def get_optimal_distances(smiles, mapnum_dict, bonds, solvent=None, charge=0):
         charge = Chem.GetFormalCharge(mol)
 
         if solvent is not None:
-            ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=solvent)
+            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=solvent)
         else:
-            ade_rmol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
+            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
 
-        ade_rmol.conformers = [conf_gen.get_simanl_conformer(ade_rmol)]
+        ade_mol.conformers = [conf_gen.get_simanl_conformer(ade_mol)]
 
-        ade_rmol.conformers[0].optimise(method=xtb)
-        dist_matrix = distance_matrix(ade_rmol.coordinates, ade_rmol.coordinates)
+        ade_mol.conformers[0].optimise(method=xtb)
+        dist_matrix = distance_matrix(ade_mol.coordinates, ade_mol.coordinates)
         current_bond_length = dist_matrix[mol_dict[i], mol_dict[j]]
 
         optimal_distances[idx1, idx2] = current_bond_length
