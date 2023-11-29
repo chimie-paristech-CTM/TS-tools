@@ -47,11 +47,14 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
 
     formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol) # atom map numbers are used here 
 
+    print(formed_bonds, broken_bonds)
+
+    # TODO: only look at the actual bonds that are broken!
     # If more bonds are broken than formed, then reverse the reaction
-    if len(formed_bonds) < len(broken_bonds):
-        full_reactant_mol = Chem.MolFromSmiles(product_smiles, ps)
-        full_product_mol = Chem.MolFromSmiles(reactant_smiles, ps)
-        formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol)
+    #if len(formed_bonds) < len(broken_bonds):
+    #    full_reactant_mol = Chem.MolFromSmiles(product_smiles, ps)
+    #    full_product_mol = Chem.MolFromSmiles(reactant_smiles, ps)
+    #    formed_bonds, broken_bonds = get_active_bonds_from_mols(full_reactant_mol, full_product_mol)
 
     # Construct dict to translate between map numbers and idxs
     full_reactant_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in full_reactant_mol.GetAtoms()}
@@ -67,13 +70,15 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
     # Determine bonds to stretch -- reactants & products #TODO: don't fix bond lengths within the individual molecules themselves
     formation_bonds_to_stretch = set()
     for bond in set(formation_constraints.keys()) - set(breaking_constraints.keys()):
-        if owning_dict_rsmiles[reverse_full_reactant_dict[bond[0]]] != owning_dict_rsmiles[reverse_full_reactant_dict[bond[1]]]:
-            formation_bonds_to_stretch.add(bond)
+        #if owning_dict_rsmiles[reverse_full_reactant_dict[bond[0]]] != owning_dict_rsmiles[reverse_full_reactant_dict[bond[1]]]:
+        formation_bonds_to_stretch.add(bond)
 
     breaking_bonds_to_stretch = set()
     for bond in set(breaking_constraints.keys()) - set(formation_constraints.keys()):
-        if owning_dict_psmiles[reverse_full_reactant_dict[bond[0]]] != owning_dict_psmiles[reverse_full_reactant_dict[bond[1]]]:
-            breaking_bonds_to_stretch.add(bond)
+        #if owning_dict_psmiles[reverse_full_reactant_dict[bond[0]]] != owning_dict_psmiles[reverse_full_reactant_dict[bond[1]]]:
+        breaking_bonds_to_stretch.add(bond)
+
+    print(formation_bonds_to_stretch, breaking_bonds_to_stretch)
 
     # Determine a crude force constant range that can subsequently be refined
     fc_minimal_crude = determine_minimal_fc(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, 
@@ -120,25 +125,23 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
 def determine_minimal_fc(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
                 breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict, full_product_mol, solvent, fc_begin, fc_end, fc_interval):
     for force_constant in np.arange(fc_begin, fc_end, fc_interval):
-        for _ in range(2):
-            optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
-                full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
-                breaking_bonds_to_stretch, force_constant, charge, reactive_complex_factor, full_reactant_dict)
-            masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
+        optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
+            full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
+            breaking_bonds_to_stretch, force_constant, charge, reactive_complex_factor, full_reactant_dict)
+        masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
 
-            _, _, _, potentials = get_profile_for_biased_optimization(
-                reactant_conformer_name,
-                formation_constraints,
-                force_constant,
-                inactive_bond_mask,
-                masked_dist_mat,
-                charge=charge,
-                solvent=solvent,
-            )
-            #print(force_constant, potentials)
-            if potentials[-1] < 0.005:
-                break
+        print(formation_constraints)
 
+        _, _, _, potentials = get_profile_for_biased_optimization(
+            reactant_conformer_name,
+            formation_constraints,
+            force_constant,
+            inactive_bond_mask,
+            masked_dist_mat,
+            charge=charge,
+            solvent=solvent,
+        )
+        print(force_constant, potentials)
         if potentials[-1] < 0.005:
             return force_constant
         else:
@@ -156,6 +159,7 @@ def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, f
     breaking_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y 
                                       for x,y in breaking_constraints.items() if x in breaking_bonds_to_stretch}
 
+    #print(breaking_constraints, formation_constraints)
     # Generate initial optimized reactant mol and conformer with the correct stereochemistry
     constraints = {} #breaking_constraints.copy()
     if len(reactant_smiles.split('.')) != 1:
@@ -178,6 +182,7 @@ def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, f
         for key,val in breaking_constraints_stretched.items():
             product_constraints[key] = val
        
+    #print(product_smiles, full_reactant_dict)
     _ = optimize_molecule_with_extra_constraints(
                 full_reactant_mol,
                 product_smiles,
@@ -210,7 +215,6 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
 
     # Find local maxima in path
     indices_local_maxima = find_local_max_indices(true_energies) # Assuming that your reactants are sufficiently separated at first
-
 
     # Validate the local maxima
     idx_local_maxima_correct_mode = []
@@ -508,15 +512,19 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, forc
         atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n, save_xyz=False) # set save_xyz to false to ensure new optimization
         conformer = Conformer(name=f"conformer_{name}_init", atoms=atoms, charge=charge, dist_consts=constraints)
         write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
+        #print(atoms)
         embedded_mol, stereochemistry_xyz_reactants = get_stereochemistry_from_xyz(f'{conformer.name}.xyz', smiles)
         if stereochemistry_smiles_reactants == stereochemistry_xyz_reactants:
             break
 
-    if len(stereochemistry_smiles_reactants) != 0:
-        embedded_mol = assign_cis_trans_from_geometry(embedded_mol, smiles_with_stereo=smiles)
-        write_xyz_file_from_mol(embedded_mol, f"conformer_{name}_init.xyz")
+    # TODO: apparently, there can be a reordering of the atoms in this step! this needs to be fixed
+    #if len(stereochemistry_smiles_reactants) != 0:
+    #    embedded_mol = assign_cis_trans_from_geometry(embedded_mol, smiles_with_stereo=smiles)
+    #    write_xyz_file_from_mol(embedded_mol, f"conformer_{name}_init.xyz")
 
     ade_mol_optimized = ade.Molecule(f'conformer_{name}_init.xyz', charge=charge)
+
+    #print(ade_mol_optimized.atoms)
 
     xtb_constraints = get_xtb_constraints(ade_mol_optimized, constraints)
     conformer.constraints.update(xtb_constraints)
@@ -524,6 +532,7 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, forc
     ade_mol_optimized.constraints = conformer.constraints
     xtb.force_constant = force_constant
     ade_mol_optimized.optimise(method=xtb)
+    #print(ade_mol_optimized.atoms)
     write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'conformer_{name}_init.xyz')
 
     return ade_mol_optimized, f'conformer_{name}_init.xyz' 

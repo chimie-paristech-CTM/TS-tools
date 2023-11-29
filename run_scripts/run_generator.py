@@ -256,7 +256,7 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dirs(f'benchmarking_{reactive_complex_factor_list[0]}_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)[73:74]
+    reaction_list = get_reaction_list(input_file)[:1]
     start_time = time.time()
 
     # get all guesses
@@ -271,6 +271,7 @@ if __name__ == "__main__":
 
         reaction_list = update_reaction_list(reaction_list, successful_reactions_final)
 
+        break
         if len(reaction_list) == 0:
             break
 
