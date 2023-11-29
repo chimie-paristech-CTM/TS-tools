@@ -79,10 +79,10 @@ def process_reaction(args):
     
     change_workdir(f'{target_dir}/reaction_{idx}')
 
-    try:
-        ts_guesses_found = obtain_ts_guess(smiles_string, reactive_complex_factor, freq_cut_off)
-    except Exception as e:
-        print(f'Error processing reaction {idx}: {str(e)}')
+    #try:
+    ts_guesses_found = obtain_ts_guess(smiles_string, reactive_complex_factor, freq_cut_off)
+    #except Exception as e:
+    #    print(f'Error processing reaction {idx}: {str(e)}')
     
     if ts_guesses_found:
         print(f'TS guess found for {smiles_string}')
@@ -97,7 +97,7 @@ def get_guesses_from_smiles_list(reaction_list, reactive_complex_factor, freq_cu
     print(f'{len(reaction_list)} reactions to process')
 
     num_processes = multiprocessing.cpu_count()
-    pool = multiprocessing.Pool(processes=num_processes)
+    pool = multiprocessing.Pool(processes=int(num_processes/2))
 
     args = list(zip(reaction_list, 
                [target_dir for _ in reaction_list],
@@ -147,7 +147,7 @@ def run_gaussian_jobs(folder):
 
             print(log_file, success)
             if success:
-                successful_ts.append(log_file)
+                successful_ts.append(directory)
                 break
 
     return successful_ts
@@ -237,26 +237,41 @@ def run_irc(input_file):
             stderr=subprocess.DEVNULL,
         )
 
+
+def update_reaction_list(reaction_list, successful_reactions_final):
+    reactions_still_to_do = []
+    succesful_ids = set([reaction.split('_')[-1] for reaction in successful_reactions_final])
+
+    for reaction in reaction_list:
+        if reaction[0] not in succesful_ids:
+            reactions_still_to_do.append(reaction)
+
+    return reactions_still_to_do
             
 if __name__ == "__main__":
     # settings
-    reactive_complex_factor = 2.5
+    reactive_complex_factor_list = [2.0] #, 2.5, 2.0, 2.5]
     freq_cut_off = 150
 
     # preliminaries
     input_file = 'reactions_am.txt'
-    target_dir = setup_dirs(f'benchmarking_{reactive_complex_factor}_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)[21:23]
+    target_dir = setup_dirs(f'benchmarking_{reactive_complex_factor_list[0]}_{freq_cut_off}')
+    reaction_list = get_reaction_list(input_file)[73:74]
     start_time = time.time()
 
     # get all guesses
-    successful_reactions = get_guesses_from_smiles_list(reaction_list, reactive_complex_factor=reactive_complex_factor, freq_cut_off=freq_cut_off, start_time=start_time)
+    for reactive_complex_factor in reactive_complex_factor_list:
+        successful_reactions = get_guesses_from_smiles_list(reaction_list, reactive_complex_factor=reactive_complex_factor, freq_cut_off=freq_cut_off, 
+                                                            start_time=start_time)
 
-    generate_gaussian_inputs(target_dir, method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"', basis_set='', 
+        generate_gaussian_inputs(target_dir, method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"', basis_set='', 
                              extra_commands='opt=(ts, calcall, noeigen, nomicro)')
 
-    successful_reactions_final = run_gaussian_jobs(target_dir) #TODO: split this up so that you first do all main TS guesses in full before proceeding to the next    
+        successful_reactions_final = run_gaussian_jobs(target_dir)   
+
+        reaction_list = update_reaction_list(reaction_list, successful_reactions_final)
+
+        if len(reaction_list) == 0:
+            break
 
     print_statistics(successful_reactions_final, start_time)
-
-    #successful_reactions_final = confirm_opt_transition_states(target_dir)

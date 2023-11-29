@@ -20,7 +20,7 @@ ps.removeHs = False
 bohr_ang = 0.52917721090380
 
 xtb = ade.methods.XTB()
-xtb.force_constant = 2
+#xtb.force_constant = 2
 
 
 def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None, reactive_complex_factor=1.8, freq_cut_off=150):
@@ -76,12 +76,54 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
             breaking_bonds_to_stretch.add(bond)
 
     # Determine a crude force constant range that can subsequently be refined
-    start_force_constant, end_force_constant = None, None
-    for force_constant in np.arange(0.05, 0.8, 0.05):
+    fc_minimal_crude = determine_minimal_fc(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, 
+            breaking_constraints, formation_bonds_to_stretch, breaking_bonds_to_stretch, charge, reactive_complex_factor, 
+            full_reactant_dict, full_product_mol, solvent, 0.1, 0.8, 0.1)
+    
+    if fc_minimal_crude is not None:
+        fc_minimal_refined = determine_minimal_fc(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, 
+            breaking_constraints, formation_bonds_to_stretch, breaking_bonds_to_stretch, charge, reactive_complex_factor, 
+            full_reactant_dict, full_product_mol, solvent, fc_minimal_crude - 0.09, fc_minimal_crude + 0.01, 0.01)
+        
+        if fc_minimal_refined is not None:
+            for force_constant in np.arange(fc_minimal_refined - 0.009, fc_minimal_refined + 0.001, 0.001):
+
+                for _ in range(5):
+                    optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
+                    full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
+                    breaking_bonds_to_stretch, force_constant, charge, reactive_complex_factor, full_reactant_dict)
+                    masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
+
+                    energies, coords, atoms, potentials = get_profile_for_biased_optimization(
+                        reactant_conformer_name,
+                        formation_constraints,
+                        force_constant,
+                        inactive_bond_mask,
+                        masked_dist_mat,
+                        charge=charge,
+                        solvent=solvent,
+                    )
+                    if potentials[-1] > min(fc_minimal_refined,0.005):
+                        break  # Means that you haven't reached the products at the end of the biased optimization
+                    else:
+                        path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
+                        guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
+                            charge, freq_cut_off=freq_cut_off)
+                        save_rp_geometries(atoms, coords)
+                
+                        if guesses_found:
+                            return True
+    
+    return False
+        
+
+def determine_minimal_fc(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
+                breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict, full_product_mol, solvent, fc_begin, fc_end, fc_interval):
+    for force_constant in np.arange(fc_begin, fc_end, fc_interval):
         for _ in range(2):
             optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
                 full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
-                breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict)
+                breaking_bonds_to_stretch, force_constant, charge, reactive_complex_factor, full_reactant_dict)
             masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
 
             _, _, _, potentials = get_profile_for_biased_optimization(
@@ -93,51 +135,21 @@ def determine_ts_guesses_from_path(reactant_smiles, product_smiles, solvent=None
                 charge=charge,
                 solvent=solvent,
             )
-            if potentials[-1] < 0.01:
+            #print(force_constant, potentials)
+            if potentials[-1] < 0.005:
                 break
 
-        if potentials[-1] < 0.01:
-            end_force_constant = force_constant + 0.0025
-            start_force_constant = force_constant - 0.0475
-            break
+        if potentials[-1] < 0.005:
+            return force_constant
         else:
             continue
 
-    # Now do the actual refinement
-    if end_force_constant is not None:
-        for force_constant in np.arange(start_force_constant, end_force_constant, 0.0025):
+    return None
 
-            for _ in range(5):
-                optimized_ade_reactant_mol, reactant_conformer_name = get_reactive_complexes(
-                full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, formation_bonds_to_stretch, 
-                breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict)
-                masked_dist_mat, inactive_bond_mask = get_masked_dist_mat(optimized_ade_reactant_mol, full_reactant_mol, full_product_mol, full_reactant_dict)
 
-                energies, coords, atoms, potentials = get_profile_for_biased_optimization(
-                    reactant_conformer_name,
-                    formation_constraints,
-                    force_constant,
-                    inactive_bond_mask,
-                    masked_dist_mat,
-                    charge=charge,
-                    solvent=solvent,
-                )
-                if potentials[-1] > 0.01:
-                    break  # Means that you haven't reached the products at the end of the biased optimization
-                else:
-                    path_xyz_files = get_path_xyz_files(atoms, coords, force_constant)
-                    guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
-                        charge, freq_cut_off=freq_cut_off)
-                    save_rp_geometries(atoms, coords)
-                
-                    if guesses_found:
-                        return True
-    
-    return False
-        
-    
+
 def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, formation_constraints, breaking_constraints, 
-                               formation_bonds_to_stretch, breaking_bonds_to_stretch, charge, reactive_complex_factor, full_reactant_dict):
+                               formation_bonds_to_stretch, breaking_bonds_to_stretch, force_constant, charge, reactive_complex_factor, full_reactant_dict):
 
     formation_constraints_stretched = {x: random.uniform(reactive_complex_factor, 1.2 * reactive_complex_factor) * y 
                                        for x,y in formation_constraints.items() if x in formation_bonds_to_stretch}
@@ -155,6 +167,7 @@ def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, f
         reactant_smiles,
         #formation_constraints_stretched,
         constraints,
+        force_constant,
         charge
     )
 
@@ -169,6 +182,7 @@ def get_reactive_complexes(full_reactant_mol, reactant_smiles, product_smiles, f
                 full_reactant_mol,
                 product_smiles,
                 product_constraints,
+                force_constant,
                 charge,
                 name='product', 
                 reordering_dict=full_reactant_dict,
@@ -206,7 +220,6 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
             idx_local_maxima_correct_mode.append(index)
 
     print(indices_local_maxima)
-    print(idx_local_maxima_correct_mode)
 
     # If none of the local maxima could potentially lie on the correct mode, abort
     if len(idx_local_maxima_correct_mode) == 0:
@@ -227,8 +240,12 @@ def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=15
 
     ranked_guess_files = [item[0] for item in sorted_guess_dict]
 
+    print(ranked_guess_files)
+
     for index, guess_file in enumerate(ranked_guess_files):
         copy_final_guess_xyz(guess_file, index)
+
+    # TODO: filter based on RMSD!
 
     return True
 
@@ -441,7 +458,7 @@ def run_hessian_calc(filename, charge):
 
 
 # TODO: fix this!
-def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, charge, name='reactant', reordering_dict=None, extra_constraints=None):
+def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, force_constant, charge, name='reactant', reordering_dict=None, extra_constraints=None):
     """
     Optimize molecule with extra constraints.
 
@@ -449,6 +466,7 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
         full_mol: The full RDKIT molecule.
         smiles: SMILES representation of the molecule.
         constraints: Constraints for optimization.
+        ...
         charge: Charge value.
         name: name to be used in generated xyz-files
         extra_constraints: undefined product constraints where there shouldn't be a bond
@@ -504,7 +522,8 @@ def optimize_molecule_with_extra_constraints(full_mol, smiles, constraints, char
     conformer.constraints.update(xtb_constraints)
 
     ade_mol_optimized.constraints = conformer.constraints
-    ade_mol_optimized.optimise(method=ade.methods.XTB())
+    xtb.force_constant = force_constant
+    ade_mol_optimized.optimise(method=xtb)
     write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'conformer_{name}_init.xyz')
 
     return ade_mol_optimized, f'conformer_{name}_init.xyz' 
@@ -721,6 +740,10 @@ def get_path_xyz_files(atoms, coords, force_constant):
     if folder_name in os.listdir():
         shutil.rmtree(folder_name)
     os.makedirs(folder_name)
+
+    #for i, coord in enumerate(coords):
+    #    print(i)
+    #    print(distance_matrix(coord, coord)[0,1])
 
     for i in range(len(atoms)):
         filename = write_xyz_file_from_atoms_and_coords(

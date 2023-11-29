@@ -3,6 +3,7 @@ import autode as ade
 import os
 #from scipy.spatial import distance_matrix
 from autode.mol_graphs import make_graph
+import subprocess
 
 atomic_number_to_symbol = {
     1: 'H',  2: 'He',  3: 'Li',  4: 'Be',  5: 'B',
@@ -60,9 +61,6 @@ def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
                 xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[2]):.6f} {float(split_line[3]):.6f} {float(split_line[4]):.6f}\n')
             else:
                 xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[3]):.6f} {float(split_line[4]):.6f} {float(split_line[5]):.6f}\n')
-
-
-    # iterate through lines, each time update block until you reach backward direction, then do the same and return both xyz files
     
 
 def extract_transition_state_geometry(log_path, output_xyz_path):
@@ -101,6 +99,61 @@ def extract_transition_state_geometry(log_path, output_xyz_path):
     print(f'Transition state geometry extracted and saved to {output_xyz_path}.')
 
 
+def write_coordinates_to_xyz(coordinates, file_path):
+    with open(file_path, 'w') as xyz_file:
+        # Write the number of atoms
+        xyz_file.write(str(len(coordinates)) + '\n\n')
+        for coordinate in coordinates:
+            xyz_file.write(f'{coordinate[0]} {float(coordinate[1]):.6f} {float(coordinate[2]):.6f} {float(coordinate[3]):.6f}\n')
+
+
+def extract_coordinates(file_path):
+    coordinates = []
+
+    with open(file_path, 'r') as file:
+        found_coordinates = False
+
+        for line in file:
+            if 'final structure' in line.lower():
+                found_coordinates = True
+                continue
+
+            if found_coordinates and line.strip() == '':
+                break
+
+            if found_coordinates:
+                atom_info = line.split()
+                if len(atom_info) == 4:
+                    element, x, y, z = atom_info
+                    coordinates.append((element, float(x), float(y), float(z)))
+
+    write_coordinates_to_xyz(coordinates, f'{file_path[:-4]}_opt.xyz')
+
+
+def write_xtb_input_file(xyz_path):
+    file_path = os.path.join(os.path.dirname(xyz_path), 'xtb.inp')
+    input_block = """
+    $wall
+    potential=logfermi
+    sphere: auto, all
+    $end
+    """
+
+    with open(file_path, 'w') as file:
+        file.write(input_block)
+
+    return file_path
+
+
+def optimize_final_point_irc(xyz_file, charge):
+    inp_path = write_xtb_input_file(xyz_file)
+    with open(f'{xyz_file[:-4]}.out', 'w') as out:
+        process = subprocess.Popen(f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge} '.split(), 
+                                   stderr=subprocess.DEVNULL, stdout=out)
+        process.wait()
+    extract_coordinates(f'{xyz_file[:-4]}.out')
+
+
 def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol):
     for mol in [forward_mol, reverse_mol, reactant_mol, product_mol]:
         make_graph(mol, rel_tolerance = rel_tolerance)
@@ -109,8 +162,12 @@ def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mo
 
 
 def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0):
-    forward_mol = ade.Molecule(forward_xyz, name='forward', charge=charge)
-    reverse_mol = ade.Molecule(reverse_xyz, name='reverse', charge=charge)
+    # first reoptimize the final points
+    optimize_final_point_irc(forward_xyz, charge)
+    optimize_final_point_irc(reverse_xyz, charge)
+    # then take final geometry and do actual comparison
+    forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge)
+    reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge)
     reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge)
     product_mol = ade.Molecule(product_xyz, name='product', charge=charge)
 
@@ -164,6 +221,7 @@ if __name__ == '__main__':
     #generate_gaussian_irc_input(f'{path[:-4]}.xyz', method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
     #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
     #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
+    # optimize_final_point_irc('lol/ts_guess_4_irc_forward.xyz', 0)
     reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_forward.xyz', 
                           '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_reverse.xyz',
                           '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 

@@ -16,6 +16,8 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0):
     # get all information about main imaginary mode
     freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge)
 
+    #print(ts_guess_file, freq, main_displacement_is_active)
+
     if freq < -freq_cut_off and main_displacement_is_active:
         return ts_guess_file, freq
     else:
@@ -79,6 +81,7 @@ def extract_info_ts_file(ts_file, path, charge):
     displacement_dict = {}
     for bond in all_bonds:
         displacement_dict[bond] = abs(delta_mode[bond[0],bond[1]])
+
     max_displacement_bond = max(displacement_dict, key=displacement_dict.get)
 
     if max_displacement_bond in active_bonds:
