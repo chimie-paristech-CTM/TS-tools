@@ -16,8 +16,6 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0):
     # get all information about main imaginary mode
     freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge)
 
-    #print(ts_guess_file, freq, main_displacement_is_active)
-
     if freq < -freq_cut_off and main_displacement_is_active:
         return ts_guess_file, freq
     else:
@@ -220,10 +218,13 @@ def get_xyzs(path):
         str: The name of the reactant file.
         str: The name of the product file.
     """
-    reactant_file = [f for f in os.listdir(path) if f == 'conformer_reactant_init_optimised_xtb.xyz'][0]
-    product_file = [f for f in os.listdir(path) if f == 'conformer_product_init_optimised_xtb.xyz'][0]
+    rp_path = os.path.join(os.path.join(os.path.dirname(path), 
+                        os.path.join('rp_geometries')), os.path.basename(path))
 
-    return os.path.join(path, reactant_file), os.path.join(path, product_file)
+    reactant_file = os.path.join(rp_path, 'reactants_geometry.xyz')
+    product_file = os.path.join(rp_path, 'products_geometry.xyz') 
+
+    return reactant_file, product_file
 
 
 def get_negative_frequencies(filename, charge):

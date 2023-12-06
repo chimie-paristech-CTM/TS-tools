@@ -66,7 +66,7 @@ def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
 def extract_transition_state_geometry(log_path, output_xyz_path):
     # Define regular expressions to identify relevant lines
     geometry_start_pattern = re.compile(r'^\s*Standard orientation:.*')
-    geometry_end_pattern = re.compile(r'^\s*-*\n')
+    geometry_end_pattern = re.compile(r'^\s*-+\s*$')
     transition_state_pattern = re.compile(r'^\s*-- Stationary point found\.$')
 
     # Set boolean flag
@@ -87,7 +87,7 @@ def extract_transition_state_geometry(log_path, output_xyz_path):
             if ts_found and geometry_start_pattern.match(line):
                 geometry_block_start_line = i + 5
             
-            if ts_found and geometry_block_start_line != 0 and i > geometry_block_start_line + 5 and geometry_end_pattern.match(line):
+            if ts_found and geometry_block_start_line != 0 and i > geometry_block_start_line and geometry_end_pattern.match(line):
                 geometry_block_end_line = i
                 break
 
@@ -222,8 +222,9 @@ if __name__ == '__main__':
     #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
     #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
     # optimize_final_point_irc('lol/ts_guess_4_irc_forward.xyz', 0)
-    reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_forward.xyz', 
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_reverse.xyz',
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 
-                          '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
-    print(reaction_correct)
+    #reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_forward.xyz', 
+    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_reverse.xyz',
+    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 
+    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
+    #print(reaction_correct)
+    extract_transition_state_geometry('logs/ts_guess_0.log', 'logs/test.xyz')
