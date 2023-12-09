@@ -9,14 +9,6 @@ from reaction_profile_generator.utils import work_in, xyz_to_gaussian_input
 from reaction_profile_generator.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
 
 
-# TODO: sort out issue with workdir!
-workdir = ['test']
-
-
-def change_workdir(new_name):
-    workdir[0] = new_name
-
-
 def get_reaction_list(filename):
     ''' a function that opens a file, reads in every line as a reaction smiles and returns them as a list. '''
     with open(filename, 'r') as f:
@@ -24,8 +16,6 @@ def get_reaction_list(filename):
         reaction_list = [line.rstrip().split() for line in lines]
     return reaction_list
 
-
-@work_in(workdir)
 def obtain_ts_guess(reaction_smiles, reactive_complex_factor=1.8, freq_cut_off=150, solvent=None):
     ''' a function that splits up a reaction smiles in reactant and product, and then calls the function get_path with these as parameters. '''
     reactant_smiles, product_smiles = reaction_smiles.split('>>')

@@ -23,17 +23,12 @@ xtb = ade.methods.XTB()
 
 
 class PathGenerator:
-    def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, solvent=None, reactive_complex_factor=2.0, freq_cut_off=150):
+    def __init__(self, reactant_smiles, product_smiles, solvent=None, reactive_complex_factor=2.0, freq_cut_off=150):
         self.reactant_smiles = reactant_smiles
         self.product_smiles = product_smiles
-        self.rxn_id = rxn_id
-        self.path_dir = path_dir
-        self.rp_geometries_dir = rp_geometries_dir
         self.solvent = solvent
         self.reactive_complex_factor = reactive_complex_factor
         self.freq_cut_off = freq_cut_off
-
-        os.chdir(self.path_dir)
 
         self.reactant_rdkit_mol = Chem.MolFromSmiles(reactant_smiles, ps)
         self.product_rdkit_mol = Chem.MolFromSmiles(product_smiles, ps)
@@ -51,22 +46,25 @@ class PathGenerator:
 
         self.formation_bonds_to_stretch, self.breaking_bonds_to_stretch = self.get_bonds_to_stretch()
 
-        self.minimal_fc = self.determine_minimal_fc()
-
-    def get_path(self):
-        path_xyz_files = None
-        if self.minimal_fc is not None:
-            for fc in np.arange(self.minimal_fc - 0.009, self.minimal_fc + 0.001, 0.001):
-                reactive_complex_xyz_file = self.get_reactive_complexes(fc)
-                energies, coords, atoms, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
-                if potentials[-1] > min(fc, 0.005):
-                    continue  # Means that you haven't reached the products at the end of the biased optimization
-                else:
-                    path_xyz_files = get_path_xyz_files(atoms, coords, fc) 
-                    self.save_rp_geometries(atoms, coords)
-                    return energies, potentials, path_xyz_files
+    def get_ts_guesses_from_path(self):
+        minimal_fc = self.determine_minimal_fc()
+        if minimal_fc is not None:
+            for fc in np.arange(minimal_fc - 0.009, minimal_fc + 0.001, 0.001):
+                for _ in range(5):
+                    reactive_complex_xyz_file = self.get_reactive_complexes(fc)
+                    energies, coords, atoms, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
+                    if potentials[-1] > min(minimal_fc, 0.005):
+                        break  # Means that you haven't reached the products at the end of the biased optimization
+                    else:
+                        save_rp_geometries(atoms, coords)
+                        path_xyz_files = get_path_xyz_files(atoms, coords, fc)
+                        guesses_found = get_ts_guesses(energies, potentials, path_xyz_files, \
+                            self.charge, freq_cut_off=self.freq_cut_off)
                 
-        return None, None, None
+                        if guesses_found:
+                            return True
+        
+        return False
 
     def determine_minimal_fc(self):
         minimal_fc_crude = self.screen_fc_range(0.1, 0.8, 0.1)
@@ -191,7 +189,7 @@ class PathGenerator:
 
         write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'{conformer.name}.xyz')
 
-        return os.path.join(f'{conformer.name}.xyz')         
+        return f'{conformer.name}.xyz'         
 
     def get_bonds_to_stretch(self):
         formation_bonds_to_stretch, breaking_bonds_to_stretch = set(), set()
@@ -258,10 +256,6 @@ class PathGenerator:
             optimal_distances[idx1, idx2] = current_bond_length
     
         return optimal_distances
-    
-    def save_rp_geometries(self, atoms, coords):    
-        write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'))
-        write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'))
     
 
 def get_owning_mol_dict(smiles):
@@ -480,6 +474,63 @@ def write_xyz_file_from_atoms_and_coords(atoms, coords, filename):
     return filename
 
 
+def save_rp_geometries(atoms, coords):
+    path_name = os.path.join('/'.join(os.getcwd().split('/')[:-1]), 'rp_geometries')
+    reaction_name = os.getcwd().split('/')[-1]
+
+    if reaction_name not in os.listdir(path_name):
+        os.makedirs(os.path.join(path_name, reaction_name))
+    
+    write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(os.path.join(path_name, reaction_name), 'reactants_geometry.xyz'))
+    write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(os.path.join(path_name, reaction_name), 'products_geometry.xyz'))
+
+
+def get_ts_guesses(energies, potentials, path_xyz_files, charge, freq_cut_off=150):
+    """
+    ...
+    """
+    true_energies = list(np.array(energies) - np.array(potentials))
+    print(true_energies)
+
+    # Find local maxima in path
+    indices_local_maxima = find_local_max_indices(true_energies)
+
+    # Validate the local maxima and store their energy values
+    ts_guess_dict = {}
+    idx_local_maxima_correct_mode = []
+    for index in indices_local_maxima:
+        ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], os.getcwd(), freq_cut_off, charge)
+        if ts_guess_file is not None:
+            idx_local_maxima_correct_mode.append(index)
+            ts_guess_dict[ts_guess_file] = true_energies[index] 
+
+    print(indices_local_maxima)
+
+    # If none of the local maxima could potentially lie on the correct mode, abort
+    if len(idx_local_maxima_correct_mode) == 0:
+        return False
+
+    # Sort guesses based on energy
+    sorted_guess_dict = sorted(ts_guess_dict.items(), key=lambda x: x[1], reverse=True)
+    ranked_guess_files = [item[0] for item in sorted_guess_dict]
+
+    print(ranked_guess_files)
+
+    for index, guess_file in enumerate(ranked_guess_files):
+        copy_final_guess_xyz(guess_file, index)
+
+    # TODO: filter based on RMSD!
+
+    return True
+
+def find_local_max_indices(numbers):
+    local_max_indices = []
+    for i in range(len(numbers) - 2, 0, -1):
+        if numbers[i] > numbers[i - 1] and numbers[i] > numbers[i + 1]:
+            local_max_indices.append(i)
+    return local_max_indices
+
+
 def find_stereocenters(mol):
     stereocenters = []
 
@@ -563,6 +614,30 @@ def add_xyz_conformer(smiles, xyz_file):
     mol.AddConformer(conformer)
     
     return mol
+
+
+def copy_final_guess_xyz(ts_guess_file, index):
+    """
+    Copies the final transition state guess XYZ file to a designated folder and renames it.
+
+    Args:
+        ts_guess_file (str): Path to the transition state guess XYZ file.
+        ...
+
+    Returns:
+        None
+    """
+    path_name = os.path.join('/'.join(os.getcwd().split('/')[:-1]), 'final_ts_guesses')
+    reaction_name = os.getcwd().split('/')[-1]
+
+    if reaction_name not in os.listdir(path_name):
+        os.makedirs(os.path.join(path_name, reaction_name))
+
+    shutil.copy(ts_guess_file, os.path.join(path_name, reaction_name))
+    os.rename(
+        os.path.join(os.path.join(path_name, reaction_name), ts_guess_file.split('/')[-1]), 
+        os.path.join(os.path.join(path_name, reaction_name), f'ts_guess_{index}.xyz')
+    )
 
 
 if __name__ == '__main__':

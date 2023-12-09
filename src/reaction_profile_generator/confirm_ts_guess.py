@@ -56,7 +56,7 @@ def extract_info_ts_file(ts_file, path, charge):
 
     # Compute the displacement along the imaginary mode
     _ = get_negative_frequencies(ts_file, charge)
-    normal_mode, freq = read_first_normal_mode(os.path.join(path, 'g98.out'))
+    normal_mode, freq = read_first_normal_mode('g98.out')
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
 
@@ -218,8 +218,7 @@ def get_xyzs(path):
         str: The name of the reactant file.
         str: The name of the product file.
     """
-    rp_path = os.path.join(os.path.join(os.path.dirname(path), 
-                        os.path.join('rp_geometries')), os.path.basename(path))
+    rp_path = os.path.join(path, 'rp_geometries')
 
     reactant_file = os.path.join(rp_path, 'reactants_geometry.xyz')
     product_file = os.path.join(rp_path, 'products_geometry.xyz') 

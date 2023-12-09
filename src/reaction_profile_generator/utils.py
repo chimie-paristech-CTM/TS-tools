@@ -2,6 +2,7 @@ import os
 from typing import Callable
 from functools import wraps
 from rdkit import Chem
+import subprocess
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -147,6 +148,34 @@ def write_final_geometry_to_xyz(log_file_path):
         print(f"File not found: {log_file_path}")
     
     return xyz_file_path
+
+
+def run_g16_ts_optimization(file_path):
+    # Run Gaussian 16 using nohup and redirect stderr to /dev/null
+    log_file = os.path.splitext(file_path)[0] + ".log"
+    out_file = os.path.splitext(file_path)[0] + ".out"
+                
+    with open(out_file, 'w') as out:
+        subprocess.run(
+            f"g16 < {file_path} > {log_file}",
+            shell=True,
+            stdout=out,
+            stderr=subprocess.DEVNULL,
+        ) 
+    
+    return log_file
+
+def run_irc(input_file):
+    out_file = f'{input_file[:-4]}.out'
+    log_file = f'{input_file[:-4]}.log'
+
+    with open(out_file, 'w') as out:
+        subprocess.run(
+            f"g16 < {input_file} >> {log_file}",
+            shell=True,
+            stdout=out,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 if __name__ == '__main__':
