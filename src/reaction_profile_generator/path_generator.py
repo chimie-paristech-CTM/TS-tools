@@ -47,9 +47,11 @@ class PathGenerator:
         self.owning_dict_psmiles = get_owning_mol_dict(product_smiles)
 
         self.formation_constraints = self.get_optimal_distances(reactant_side=False)
-        self.breaking_constraints = self.get_optimal_distances(reactant_side=True)
+        #self.breaking_constraints = self.get_optimal_distances(reactant_side=True)
 
-        self.formation_bonds_to_stretch, self.breaking_bonds_to_stretch = self.get_bonds_to_stretch()
+        self.formation_bonds_to_stretch = self.get_bonds_to_stretch()
+
+        print(self.formation_bonds_to_stretch)
 
         self.minimal_fc = self.determine_minimal_fc()
 
@@ -69,7 +71,7 @@ class PathGenerator:
         return None, None, None
 
     def determine_minimal_fc(self):
-        minimal_fc_crude = self.screen_fc_range(0.1, 0.8, 0.1)
+        minimal_fc_crude = self.screen_fc_range(0.1, 4.0, 0.1)
         if minimal_fc_crude is not None:
             minimal_fc_refined = self.screen_fc_range(minimal_fc_crude - 0.09, minimal_fc_crude + 0.01, 0.01)
         
@@ -80,7 +82,6 @@ class PathGenerator:
         for fc in np.arange(start, end, interval):
             reactive_complex_xyz_file = self.get_reactive_complexes(fc)
             _, _, _, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
-
             if potentials[-1] < 0.005:
                 return fc
             else:
@@ -194,17 +195,19 @@ class PathGenerator:
         return os.path.join(f'{conformer.name}.xyz')         
 
     def get_bonds_to_stretch(self):
-        formation_bonds_to_stretch, breaking_bonds_to_stretch = set(), set()
+        formation_bonds_to_stretch = set()
 
-        for bond in set(self.formation_constraints.keys()) - set(self.breaking_constraints.keys()):
+        #for bond in set(self.formation_constraints.keys()) - set(self.breaking_constraints.keys()):
+        for bond in self.formation_constraints.keys():
             if self.owning_dict_rsmiles[self.atom_idx_dict[bond[0]]] != self.owning_dict_rsmiles[self.atom_idx_dict[bond[1]]]:
                 formation_bonds_to_stretch.add(bond)
 
-        for bond in set(self.breaking_constraints.keys()) - set(self.formation_constraints.keys()):
-            if self.owning_dict_psmiles[self.atom_idx_dict[bond[0]]] != self.owning_dict_psmiles[self.atom_idx_dict[bond[1]]]:
-                breaking_bonds_to_stretch.add(bond)
-        
-        return formation_bonds_to_stretch, breaking_bonds_to_stretch
+        if len(formation_bonds_to_stretch) == 0:
+            #for bond in set(self.formation_constraints.keys()) - set(self.breaking_constraints.keys()):
+            for bond in self.formation_constraints.keys():
+                formation_bonds_to_stretch.add(bond) 
+
+        return formation_bonds_to_stretch
 
     def get_active_bonds_from_mols(self):
         reactant_bonds = get_bonds(self.reactant_rdkit_mol)
@@ -573,7 +576,11 @@ if __name__ == '__main__':
     #product_smiles = '[N+:1]([B-:2]([H:6])([H:7])[H:12])([B:4]([N:3]([H:5])[H:10])[H:11])([H:8])[H:9]'
     #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
     #product_smiles = '[H:1][C:2]([C:3]([H:5])=[O:6])([H:4])[C:9]([O:8][H:7])([H:10])[H:11]'
-    reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
-    product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
-    reaction = PathGenerator(reactant_smiles, product_smiles)
+    #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
+    #product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
+    reactant_smiles = '[H:1][O:2][C:3]([H:4])([H:5])[C@@:6]1([H:7])[O:8][C@@:9]([H:10])([O:11][H:12])[C@:13]([H:14])([O:15][H:16])[C@:17]1([H:18])[O:19][H:20].[H:21][O:22][P:23](=[O:24])([O-:25])[O:26][H:27]'
+    product_smiles = '[O:25]([C@]1([H:10])[O:8][C@@:6]([C:3]([O:2][H:1])([H:4])[H:5])([H:7])[C@@:17]([H:18])([O:19][H:20])[C@@:13]1([H:14])[O:15][H:16])[P:23]([O:22][H:21])(=[O:24])[O:26][H:27].[O-:11][H:12]'
+    reaction = PathGenerator(reactant_smiles, product_smiles, 'R1', 
+                             '/Users/thijsstuyver/Desktop/reaction_profile_generator/path_test', 
+                             '/Users/thijsstuyver/Desktop/reaction_profile_generator/rp_test')
     reaction.get_ts_guesses_from_path()

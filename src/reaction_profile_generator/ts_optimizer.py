@@ -9,14 +9,15 @@ from reaction_profile_generator.irc_search import generate_gaussian_irc_input, e
 
 
 class TSOptimizer:
-    def __init__(self, rxn_id, reaction_smiles, solvent=None, reactive_complex_factor_values=[2.0], freq_cut_off=150):
+    def __init__(self, rxn_id, reaction_smiles, xtb_external_path, solvent=None, 
+                 reactive_complex_factor_values=[2.0], freq_cut_off=150):
         self.rxn_id = rxn_id
         self.reactant_smiles = reaction_smiles.split('>>')[0]
         self.product_smiles = reaction_smiles.split('>>')[-1]
         self.solvent = solvent
         self.reactive_complex_factor_values = reactive_complex_factor_values
         self.freq_cut_off = freq_cut_off
-        self.xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
+        self.xtb_external_path = xtb_external_path
 
         self.reaction_dir = self.make_work_dir()
 
@@ -43,16 +44,11 @@ class TSOptimizer:
         
         return False
 
-    def set_ts_guess_list(self):
-        for reactive_complex_factor in self.reactive_complex_factor_values:
-            path = self.set_up_path_generator(reactive_complex_factor)
-            ts_guess_list = self.obtain_ts_guesses_for_given_reactive_complex_factor(path)
-
-            if ts_guess_list is not None:
-                self.save_ts_guesses(ts_guess_list)
-                break
-            else:
-                continue
+    def set_ts_guess_list(self, reactive_complex_factor):
+        path = self.set_up_path_generator(reactive_complex_factor)
+        ts_guess_list = self.obtain_ts_guesses_for_given_reactive_complex_factor(path)
+        if ts_guess_list is not None:
+            self.save_ts_guesses(ts_guess_list)
 
         self.ts_guess_list = ts_guess_list
 
@@ -60,7 +56,8 @@ class TSOptimizer:
         path = PathGenerator(self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
                              self.solvent, reactive_complex_factor, self.freq_cut_off)
         if len(path.formed_bonds) < len(path.broken_bonds):
-            path = PathGenerator(self.product_smiles, self.reactant_smiles, self.solvent, reactive_complex_factor, self.freq_cut_off)
+            path = PathGenerator(self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
+                             self.solvent, reactive_complex_factor, self.freq_cut_off)
 
         return path
 
@@ -126,15 +123,15 @@ class TSOptimizer:
 
     def confirm_opt_transition_state(self, log_file):
         try:
-            extract_transition_state_geometry(log_file, f'{os.path.basename(log_file)}.xyz')
-            irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(f'{os.path.basename(log_file)}.xyz', 
-                output_prefix=f'{log_file.split("/")[-1][:-4]}_irc', method=f'external={self.xtb_external_path}')
+            extract_transition_state_geometry(log_file, f'{os.path.splitext(log_file)[0]}.xyz')
+            irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(f'{os.path.splitext(log_file)[0]}.xyz', 
+                output_prefix=f'{os.path.splitext(log_file)[0]}_irc', method=f'external={self.xtb_external_path}')
             run_irc(irc_input_file_f)
             run_irc(irc_input_file_r)
-            extract_irc_geometries(f'{irc_input_file_f[:-4]}.log', f'{os.path.basename(log_file)}.log')
+            extract_irc_geometries(f'{os.path.splitext(irc_input_file_f)[0]}.log', f'{os.path.splitext(irc_input_file_r)[0]}.log')
             reaction_correct = compare_molecules_irc(
-                f'{os.path.basename(irc_input_file_f)}.xyz',
-                f'{os.path.basename(irc_input_file_r)}.xyz',
+                f'{os.path.splitext(irc_input_file_f)[0]}.xyz',
+                f'{os.path.splitext(irc_input_file_r)[0]}.xyz',
                 os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'),
                 os.path.join(self.rp_geometries_dir, 'products_geometry.xyz')
             )

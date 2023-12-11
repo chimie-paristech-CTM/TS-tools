@@ -1,7 +1,6 @@
 import re
 import autode as ade
 import os
-#from scipy.spatial import distance_matrix
 from autode.mol_graphs import make_graph
 import subprocess
 

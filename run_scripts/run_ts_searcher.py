@@ -25,22 +25,28 @@ def get_reaction_list(filename):
 
 
 def optimize_ts(ts_optimizer):
-    try:
-        ts_optimizer.set_ts_guess_list()
-        ts_found = ts_optimizer.determine_ts()
-        if ts_found:
-            return ts_optimizer.rxn_id
-        else:
-            return None
-    except:
-        return None
+    for reactive_complex_factor in ts_optimizer.reactive_complex_factor_values:
+        try:
+            ts_optimizer.set_ts_guess_list(reactive_complex_factor)
+            ts_found = ts_optimizer.determine_ts() 
+            if ts_found:
+                return ts_optimizer.rxn_id
+        except Exception as e:
+            print(e)
+            continue
+    
+    return None
 
 
-def obtain_transition_states(target_dir, reaction_list, solvent, reactive_complex_factor_list, freq_cut_off):
+def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent, 
+                             reactive_complex_factor_list, freq_cut_off):
     os.chdir(target_dir)
     ts_optimizer_list = []
     for rxn_idx, rxn_smiles in reaction_list:
-        ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, solvent, reactive_complex_factor_list, freq_cut_off))
+        ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path, 
+                                             solvent, reactive_complex_factor_list, freq_cut_off))
+
+    print(f'{len(ts_optimizer_list)} reactions to process...)
 
     num_processes = multiprocessing.cpu_count()
     
@@ -53,7 +59,7 @@ def obtain_transition_states(target_dir, reaction_list, solvent, reactive_comple
     return successful_reactions
 
 
-def setup_dirs(target_dir):
+def setup_dir(target_dir):
     if target_dir in os.listdir():
         shutil.rmtree(target_dir)
     os.mkdir(target_dir)
@@ -73,14 +79,15 @@ if __name__ == "__main__":
     reactive_complex_factor_list = [2.4, 1.8, 3.0, 2.6, 2.1]
     freq_cut_off = 150
     solvent = None
+    xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
 
     # preliminaries
     input_file = 'reactions_am.txt'
-    target_dir = setup_dirs(f'benchmarking_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)[:10]
+    target_dir = setup_dir(f'benchmarking_{freq_cut_off}')
+    reaction_list = get_reaction_list(input_file)[95:96]
     start_time = time.time()
 
-    successful_reactions = obtain_transition_states(target_dir, reaction_list, 
+    successful_reactions = obtain_transition_states(target_dir, reaction_list, xtb_external_path,
         solvent=solvent, reactive_complex_factor_list=reactive_complex_factor_list, 
         freq_cut_off=freq_cut_off)
 
