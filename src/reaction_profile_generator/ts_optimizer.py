@@ -22,9 +22,10 @@ class TSOptimizer:
         self.reaction_dir = self.make_work_dir()
 
         self.path_dir = self.make_sub_dir(sub_dir_name='path_dir')
-        self.ts_guesses_dir = self.make_sub_dir(sub_dir_name='ts_guesses')
+        self.ts_guesses_dir = self.make_sub_dir(sub_dir_name='preliminary_ts_guesses')
         self.g16_dir = self.make_sub_dir(sub_dir_name='g16_dir')
         self.rp_geometries_dir = self.make_sub_dir(sub_dir_name='rp_geometries')
+        self.final_guess_dir = self.make_sub_dir(sub_dir_name='final_ts_guess')
 
         self.ts_guess_list = None
 
@@ -40,6 +41,8 @@ class TSOptimizer:
             success = self.confirm_opt_transition_state(log_file)
 
             if success:
+                xyz_file = f'{os.path.splitext(log_file)[0]}.xyz'
+                self.save_final_ts_guess_files(xyz_file, log_file)
                 return True
         
         return False
@@ -141,6 +144,10 @@ class TSOptimizer:
                 return False
         except:
             return False
+    
+    def save_final_ts_guess_files(self, xyz_file, log_file):
+        shutil.copy(xyz_file, self.final_guess_dir)
+        shutil.copy(log_file, self.final_guess_dir)
 
 
 def find_local_max_indices(numbers):

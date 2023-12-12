@@ -51,22 +51,24 @@ class PathGenerator:
 
         self.formation_bonds_to_stretch = self.get_bonds_to_stretch()
 
-        print(self.formation_bonds_to_stretch)
-
         self.minimal_fc = self.determine_minimal_fc()
 
     def get_path(self):
         path_xyz_files = None
         if self.minimal_fc is not None:
             for fc in np.arange(self.minimal_fc - 0.009, self.minimal_fc + 0.001, 0.001):
-                reactive_complex_xyz_file = self.get_reactive_complexes(fc)
+                reactive_complex_xyz_file = self.get_reactive_complexes(min(fc, 0.01)) # you don't need very strong force constants to constrain non-covalently bounded reactants
                 energies, coords, atoms, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
                 if potentials[-1] > min(fc, 0.005):
                     continue  # Means that you haven't reached the products at the end of the biased optimization
                 else:
-                    path_xyz_files = get_path_xyz_files(atoms, coords, fc) 
-                    self.save_rp_geometries(atoms, coords)
-                    return energies, potentials, path_xyz_files
+                    if not self.endpoint_is_product(atoms, coords):
+                        print(f'Incorrect product formed for {self.rxn_id}')
+                        return None, None, None
+                    else:
+                        path_xyz_files = get_path_xyz_files(atoms, coords, fc) 
+                        self.save_rp_geometries(atoms, coords)
+                        return energies, potentials, path_xyz_files
                 
         return None, None, None
 
@@ -116,7 +118,6 @@ class PathGenerator:
 
         return valid_energies, valid_coords, valid_atoms, potentials
 
-    # TODO: should this be with the formation constraints or only the bonds that actually undergo formation?
     def xtb_optimize_with_applied_potentials(self, reactive_complex_xyz_file, fc):
         xtb_input_path = f'{os.path.splitext(reactive_complex_xyz_file)[0]}.inp'
 
@@ -167,6 +168,7 @@ class PathGenerator:
 
         ade_mol.graph.edges = bonds
 
+        # find good starting conformer
         for n in range(20):
             atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n, save_xyz=False) # set save_xyz to false to ensure new optimization
             
@@ -190,9 +192,9 @@ class PathGenerator:
         xtb.force_constant = fc
         ade_mol_optimized.optimise(method=xtb)
 
-        write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'{conformer.name}.xyz')
+        write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'{conformer.name}_opt.xyz')
 
-        return os.path.join(f'{conformer.name}.xyz')         
+        return os.path.join(f'{conformer.name}_opt.xyz')         
 
     def get_bonds_to_stretch(self):
         formation_bonds_to_stretch = set()
@@ -265,6 +267,16 @@ class PathGenerator:
     def save_rp_geometries(self, atoms, coords):    
         write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'))
         write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'))
+
+    def endpoint_is_product(self, atoms, coords):
+        product_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2])) for atom1,atom2 in get_bonds(self.product_rdkit_mol)]
+        write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], 'products_geometry.xyz')
+        ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge)
+
+        if set(ade_mol_p.graph.edges) == set(product_bonds):
+            return True
+        else:
+            return False
     
 
 def get_owning_mol_dict(smiles):
@@ -579,7 +591,7 @@ if __name__ == '__main__':
     #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
     #product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
     reactant_smiles = '[H:1][O:2][C:3]([H:4])([H:5])[C@@:6]1([H:7])[O:8][C@@:9]([H:10])([O:11][H:12])[C@:13]([H:14])([O:15][H:16])[C@:17]1([H:18])[O:19][H:20].[H:21][O:22][P:23](=[O:24])([O-:25])[O:26][H:27]'
-    product_smiles = '[O:25]([C@]1([H:10])[O:8][C@@:6]([C:3]([O:2][H:1])([H:4])[H:5])([H:7])[C@@:17]([H:18])([O:19][H:20])[C@@:13]1([H:14])[O:15][H:16])[P:23]([O:22][H:21])(=[O:24])[O:26][H:27].[O-:11][H:12]'
+    product_smiles = '[O:25]([C@:9]1([H:10])[O:8][C@@:6]([C:3]([O:2][H:1])([H:4])[H:5])([H:7])[C@@:17]([H:18])([O:19][H:20])[C@@:13]1([H:14])[O:15][H:16])[P:23]([O:22][H:21])(=[O:24])[O:26][H:27].[O-:11][H:12]'
     reaction = PathGenerator(reactant_smiles, product_smiles, 'R1', 
                              '/Users/thijsstuyver/Desktop/reaction_profile_generator/path_test', 
                              '/Users/thijsstuyver/Desktop/reaction_profile_generator/rp_test')

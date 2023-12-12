@@ -1,19 +1,10 @@
 import time
 import os
 import shutil
-import subprocess
 import multiprocessing
 import concurrent.futures
 
 from reaction_profile_generator.ts_optimizer import TSOptimizer
-from reaction_profile_generator.utils import work_in
-
-# TODO: sort out issue with workdir!
-workdir = ['test']
-
-
-def change_workdir(new_name):
-    workdir[0] = new_name
 
 
 def get_reaction_list(filename):
@@ -30,6 +21,7 @@ def optimize_ts(ts_optimizer):
             ts_optimizer.set_ts_guess_list(reactive_complex_factor)
             ts_found = ts_optimizer.determine_ts() 
             if ts_found:
+                print(f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor}!')
                 return ts_optimizer.rxn_id
         except Exception as e:
             print(e)
@@ -46,7 +38,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path, 
                                              solvent, reactive_complex_factor_list, freq_cut_off))
 
-    print(f'{len(ts_optimizer_list)} reactions to process...)
+    print(f'{len(ts_optimizer_list)} reactions to process...')
 
     num_processes = multiprocessing.cpu_count()
     
@@ -76,7 +68,7 @@ def print_statistics(successful_reactions, start_time):
 
 if __name__ == "__main__":
     # settings
-    reactive_complex_factor_list = [2.4, 1.8, 3.0, 2.6, 2.1]
+    reactive_complex_factor_list = [2.4, 1.8, 3.0, 1.7, 3.5, 2.6, 2.1]
     freq_cut_off = 150
     solvent = None
     xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
@@ -84,7 +76,7 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dir(f'benchmarking_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)[95:96]
+    reaction_list = get_reaction_list(input_file)
     start_time = time.time()
 
     successful_reactions = obtain_transition_states(target_dir, reaction_list, xtb_external_path,

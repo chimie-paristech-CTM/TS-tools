@@ -14,9 +14,9 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0):
     """
     """
     # get all information about main imaginary mode
-    freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge)
+    freq, main_displacement_is_active, no_alternative_bonds_involved = extract_info_ts_file(ts_guess_file, path, charge)
 
-    if freq < -freq_cut_off and main_displacement_is_active:
+    if freq < -freq_cut_off and main_displacement_is_active and no_alternative_bonds_involved:
         return ts_guess_file, freq
     else:
         return None, None
@@ -75,6 +75,14 @@ def extract_info_ts_file(ts_file, path, charge):
     active_bonds_breaking = set(reactant.graph.edges).difference(set(product.graph.edges))
     active_bonds = active_bonds_forming.union(active_bonds_breaking)
 
+    # ensure that no other bond has already been formed or broken in the TS geometry
+    unactive_bonds = set(all_bonds).difference(set(active_bonds))
+    if set(ts_mol.graph.edges).issubset(all_bonds) and unactive_bonds.issubset(set(ts_mol.graph.edges)):
+        no_alternative_bonds_involved = True
+    else:
+        no_alternative_bonds_involved = False
+
+
     # Check if main bond displacement in mode corresponds to active bond
     displacement_dict = {}
     for bond in all_bonds:
@@ -87,7 +95,7 @@ def extract_info_ts_file(ts_file, path, charge):
     else:
         main_displacement_is_active = False
     
-    return freq, main_displacement_is_active
+    return freq, main_displacement_is_active, no_alternative_bonds_involved
 
 
 def read_first_normal_mode(filename):
