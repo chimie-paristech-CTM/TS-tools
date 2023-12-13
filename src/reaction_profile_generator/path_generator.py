@@ -46,9 +46,7 @@ class PathGenerator:
         self.owning_dict_rsmiles = get_owning_mol_dict(reactant_smiles)
         self.owning_dict_psmiles = get_owning_mol_dict(product_smiles)
 
-        self.formation_constraints = self.get_optimal_distances(reactant_side=False)
-        #self.breaking_constraints = self.get_optimal_distances(reactant_side=True)
-
+        self.formation_constraints = self.get_optimal_distances()
         self.formation_bonds_to_stretch = self.get_bonds_to_stretch()
 
         self.minimal_fc = self.determine_minimal_fc()
@@ -56,13 +54,15 @@ class PathGenerator:
     def get_path(self):
         path_xyz_files = None
         if self.minimal_fc is not None:
-            for fc in np.arange(self.minimal_fc - 0.009, self.minimal_fc + 0.001, 0.001):
-                reactive_complex_xyz_file = self.get_reactive_complexes(min(fc, 0.01)) # you don't need very strong force constants to constrain non-covalently bounded reactants
+            # overstretch range a bit because otherwise you may end up aborting the search prematurely
+            for fc in np.arange(self.minimal_fc - 0.009, self.minimal_fc + 0.005, 0.001):
+                reactive_complex_xyz_file = self.get_reactive_complexes(min(fc, 0.1)) # you don't need very strong force constants to constrain non-covalently bounded reactants
                 energies, coords, atoms, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
                 if potentials[-1] > min(fc, 0.005):
                     continue  # Means that you haven't reached the products at the end of the biased optimization
                 else:
                     if not self.endpoint_is_product(atoms, coords):
+                        path_xyz_files = get_path_xyz_files(atoms, coords, fc) 
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
                     else:
@@ -75,19 +75,20 @@ class PathGenerator:
     def determine_minimal_fc(self):
         minimal_fc_crude = self.screen_fc_range(0.1, 4.0, 0.1)
         if minimal_fc_crude is not None:
-            minimal_fc_refined = self.screen_fc_range(minimal_fc_crude - 0.09, minimal_fc_crude + 0.01, 0.01)
+            # overstretch range a bit because otherwise you may end up aborting the search prematurely
+            minimal_fc_refined = self.screen_fc_range(minimal_fc_crude - 0.09, minimal_fc_crude + 0.03, 0.01)
         
         return minimal_fc_refined
     
-    # TODO: potentially check if bonding agrees with actual products as well + add constraints if problem
     def screen_fc_range(self, start, end, interval):
         for fc in np.arange(start, end, interval):
-            reactive_complex_xyz_file = self.get_reactive_complexes(fc)
-            _, _, _, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
-            if potentials[-1] < 0.005:
-                return fc
-            else:
-                continue
+            for _ in range(2):
+                reactive_complex_xyz_file = self.get_reactive_complexes(min(fc, 0.1))
+                _, _, _, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
+                if potentials[-1] < 0.005:
+                    return fc
+                else:
+                    continue
 
         return None
 
@@ -96,7 +97,7 @@ class PathGenerator:
                                        for x,y in self.formation_constraints.items() if x in self.formation_bonds_to_stretch}
 
         # Generate initial optimized reactant mol and conformer with the correct stereochemistry
-        reactant_constraints = {} #breaking_constraints.copy()
+        reactant_constraints = {}
         for key,val in formation_constraints_stretched.items():
             reactant_constraints[key] = val
 
@@ -141,27 +142,19 @@ class PathGenerator:
 
         return f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.log'
 
-    def optimize_molecule_with_extra_constraints(self, constraints, fc, reactant_side=True):
+    def optimize_molecule_with_extra_constraints(self, constraints, fc):
         get_conformer(self.reactant_rdkit_mol)
     
-        if reactant_side:
-            stereochemistry_smiles = find_stereocenters(self.reactant_rdkit_mol)
-            write_xyz_file_from_mol(self.reactant_rdkit_mol, 'input_reactants.xyz')
-            ade_mol = ade.Molecule(f'input_reactants.xyz', charge=self.charge)
-        else:
-            stereochemistry_smiles = find_stereocenters(self.product_rdkit_mol)
-            write_xyz_file_from_mol(self.reactant_rdkit_mol, 'input_products.xyz', self.atom_map_dict)
-            ade_mol = ade.Molecule(f'input_products.xyz', charge=self.charge)
+        stereochemistry_smiles = find_stereocenters(self.reactant_rdkit_mol)
+        write_xyz_file_from_mol(self.reactant_rdkit_mol, 'input_reactants.xyz', self.atom_map_dict)
+        ade_mol = ade.Molecule(f'input_reactants.xyz', charge=self.charge)
 
         for node in ade_mol.graph.nodes:
             ade_mol.graph.nodes[node]['stereo'] = False
 
         bonds = []
         for bond in self.reactant_rdkit_mol.GetBonds():
-            if reactant_side:
-                i, j = bond.GetBeginAtom().GetIdx(), bond.GetEndAtom().GetIdx()
-            else:
-                i,j = self.atom_map_dict[bond.GetBeginAtom().GetAtomMapNum()], self.atom_map_dict[bond.GetEndAtom().GetAtomMapNum()]
+            i,j = self.atom_map_dict[bond.GetBeginAtom().GetAtomMapNum()], self.atom_map_dict[bond.GetEndAtom().GetAtomMapNum()]
 
             if (i, j) not in constraints and (j, i) not in constraints:
                 bonds.append((i,j)) # TODO: double check that extra constraints are not needed here!
@@ -172,14 +165,9 @@ class PathGenerator:
         for n in range(20):
             atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=constraints, conf_n=n, save_xyz=False) # set save_xyz to false to ensure new optimization
             
-            if reactant_side:
-                conformer = Conformer(name=f"conformer_reactant_init", atoms=atoms, charge=self.charge, dist_consts=constraints)
-                write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
-                stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.reactant_smiles)
-            else:
-                conformer = Conformer(name=f"conformer_product_init", atoms=atoms, charge=self.charge, dist_consts=constraints)
-                write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
-                stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.product_smiles)
+            conformer = Conformer(name=f"conformer_reactants_init", atoms=atoms, charge=self.charge, dist_consts=constraints)
+            write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
+            stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.product_smiles)
 
             if stereochemistry_smiles == stereochemistry_conformer:
                 break
@@ -220,16 +208,11 @@ class PathGenerator:
 
         return formed_bonds, broken_bonds
     
-    def get_optimal_distances(self, reactant_side=True):
+    def get_optimal_distances(self):
         optimal_distances = {}
-        if reactant_side == True: 
-            mols = [Chem.MolFromSmiles(smi, ps) for smi in self.reactant_smiles.split('.')]
-            bonds = self.broken_bonds
-            owning_mol_dict = self.owning_dict_rsmiles
-        else:
-            mols = [Chem.MolFromSmiles(smi, ps) for smi in self.product_smiles.split('.')]
-            bonds = self.formed_bonds
-            owning_mol_dict = self.owning_dict_psmiles
+        mols = [Chem.MolFromSmiles(smi, ps) for smi in self.product_smiles.split('.')]
+        bonds = self.formed_bonds
+        owning_mol_dict = self.owning_dict_psmiles
 
         for bond in bonds:
             i = int(bond[0])

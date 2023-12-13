@@ -42,7 +42,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
 
     num_processes = multiprocessing.cpu_count()
     
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_processes) as executor: 
+    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_processes/2)) as executor: 
         # Map the function to each object in parallel
         results = list(executor.map(optimize_ts, ts_optimizer_list))
 
@@ -68,7 +68,7 @@ def print_statistics(successful_reactions, start_time):
 
 if __name__ == "__main__":
     # settings
-    reactive_complex_factor_list = [2.4, 1.8, 3.0, 1.7, 3.5, 2.6, 2.1]
+    reactive_complex_factor_list = [2.5] #[2.5, 2.0, 3.0, 2.3, 1.8, 2.8, 3.5, 1.7, 2.6, 2.7]
     freq_cut_off = 150
     solvent = None
     xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dir(f'benchmarking_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)
+    reaction_list = get_reaction_list(input_file)[1:2]
     start_time = time.time()
 
     successful_reactions = obtain_transition_states(target_dir, reaction_list, xtb_external_path,

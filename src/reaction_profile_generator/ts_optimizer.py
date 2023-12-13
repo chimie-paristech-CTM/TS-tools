@@ -34,8 +34,13 @@ class TSOptimizer:
             return False
 
         for i, guess_file in enumerate(self.ts_guess_list):
-            ts_search_inp_file = self.generate_g16_input_ts_opt(
-                i, guess_file, method=f'external={self.xtb_external_path}', basis_set='')
+            if self.solvent is not None:
+                ts_search_inp_file = self.generate_g16_input_ts_opt(
+                    i, guess_file, method=f'external={self.xtb_external_path}', basis_set='', 
+                    extra_commands=f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.solvent})')
+            else:
+                ts_search_inp_file = self.generate_g16_input_ts_opt(
+                    i, guess_file, method=f'external={self.xtb_external_path}', basis_set='')
             os.chdir(self.reaction_dir)
             log_file = run_g16_ts_optimization(ts_search_inp_file)
             success = self.confirm_opt_transition_state(log_file)

@@ -10,19 +10,19 @@ import subprocess
 xtb = ade.methods.XTB()
 
 
-def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0):
+def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=None):
     """
     """
     # get all information about main imaginary mode
-    freq, main_displacement_is_active, no_alternative_bonds_involved = extract_info_ts_file(ts_guess_file, path, charge)
+    freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, solvent)
 
-    if freq < -freq_cut_off and main_displacement_is_active and no_alternative_bonds_involved:
+    if freq < -freq_cut_off and main_displacement_is_active:
         return ts_guess_file, freq
     else:
         return None, None
 
 
-def extract_info_ts_file(ts_file, path, charge):
+def extract_info_ts_file(ts_file, path, charge, solvent):
     """
     Extract information related to a transition state (TS) from a directory.
 
@@ -55,7 +55,7 @@ def extract_info_ts_file(ts_file, path, charge):
     reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_file, charge)   
 
     # Compute the displacement along the imaginary mode
-    _ = get_negative_frequencies(ts_file, charge)
+    _ = get_negative_frequencies(ts_file, charge, solvent)
     normal_mode, freq = read_first_normal_mode('g98.out')
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
@@ -75,14 +75,6 @@ def extract_info_ts_file(ts_file, path, charge):
     active_bonds_breaking = set(reactant.graph.edges).difference(set(product.graph.edges))
     active_bonds = active_bonds_forming.union(active_bonds_breaking)
 
-    # ensure that no other bond has already been formed or broken in the TS geometry
-    unactive_bonds = set(all_bonds).difference(set(active_bonds))
-    if set(ts_mol.graph.edges).issubset(all_bonds) and unactive_bonds.issubset(set(ts_mol.graph.edges)):
-        no_alternative_bonds_involved = True
-    else:
-        no_alternative_bonds_involved = False
-
-
     # Check if main bond displacement in mode corresponds to active bond
     displacement_dict = {}
     for bond in all_bonds:
@@ -95,7 +87,7 @@ def extract_info_ts_file(ts_file, path, charge):
     else:
         main_displacement_is_active = False
     
-    return freq, main_displacement_is_active, no_alternative_bonds_involved
+    return freq, main_displacement_is_active
 
 
 def read_first_normal_mode(filename):
@@ -234,7 +226,7 @@ def get_xyzs(path):
     return reactant_file, product_file
 
 
-def get_negative_frequencies(filename, charge):
+def get_negative_frequencies(filename, charge, solvent):
     """
     Executes an external program to calculate the negative frequencies for a given file.
 
@@ -246,7 +238,11 @@ def get_negative_frequencies(filename, charge):
         list: A list of negative frequencies.
     """
     with open('hess.out', 'w') as out:
-        process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
+        if solvent is not None:
+            process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess --alpb {solvent}'.split(), 
+                                   stderr=subprocess.DEVNULL, stdout=out)
+        else:
+            process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
                                    stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
     
