@@ -139,7 +139,7 @@ class PathGenerator:
     def get_reactive_complex(self, fc):
         formation_constraints_stretched = self.get_formation_constraints_stretched()
         
-        ade_mol_optimized = ade.Molecule(f'{self.stereo_correct_conformer_name}.xyz', charge=self.charge)
+        ade_mol_optimized = ade.Molecule(f'{self.stereo_correct_conformer_name}.xyz', solvent_name=self.solvent, charge=self.charge)
 
         ade_mol_optimized.constraints.update(formation_constraints_stretched)
 

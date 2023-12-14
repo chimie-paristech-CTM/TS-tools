@@ -89,7 +89,7 @@ if __name__ == "__main__":
     reactive_complex_factor_list_intramolecular = [1.2, 1.3, 1.4, 1.6, 1.8]
     reactive_complex_factor_list_intermolecular = [2.5, 1.8, 2.8, 2.6, 3.0, 2.3]
     freq_cut_off = 150
-    solvent = None
+    solvent = 'water' #None
     xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
 
     # preliminaries
