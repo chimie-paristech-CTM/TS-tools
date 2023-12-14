@@ -16,13 +16,21 @@ def get_reaction_list(filename):
 
 
 def optimize_ts(ts_optimizer):
-    for reactive_complex_factor in ts_optimizer.reactive_complex_factor_values:
+    # first select the set of reactive_complex factor values to try
+    if ts_optimizer.reaction_is_intramolecular():
+        reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_intra
+    else:
+        reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_inter
+
+    # then search for TS by iterating through reactive complex factor values
+    for reactive_complex_factor in reactive_complex_factor_values:
         for _ in range(2):
             try:
                 ts_optimizer.set_ts_guess_list(reactive_complex_factor)
                 ts_found = ts_optimizer.determine_ts() 
                 if ts_found:
                     print(f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor}!')
+
                     return ts_optimizer.rxn_id
             except Exception as e:
                 print(e)
@@ -32,12 +40,14 @@ def optimize_ts(ts_optimizer):
 
 
 def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent, 
-                             reactive_complex_factor_list, freq_cut_off):
+                             reactive_complex_factor_list_intermolecular, 
+                             reactive_complex_factor_list_intramolecular, freq_cut_off):
     os.chdir(target_dir)
     ts_optimizer_list = []
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path, 
-                                             solvent, reactive_complex_factor_list, freq_cut_off))
+                                             solvent, reactive_complex_factor_list_intermolecular,
+                                             reactive_complex_factor_list_intramolecular, freq_cut_off))
 
     print(f'{len(ts_optimizer_list)} reactions to process...')
 
@@ -69,7 +79,8 @@ def print_statistics(successful_reactions, start_time):
 
 if __name__ == "__main__":
     # settings
-    reactive_complex_factor_list = [2.5, 1.8, 2.8, 1.3, 2.6, 3.0, 2.3]
+    reactive_complex_factor_list_intramolecular = [1.2, 1.3, 1.4, 1.6, 1.8]
+    reactive_complex_factor_list_intermolecular = [2.5, 1.8, 2.8, 2.6, 3.0, 2.3]
     freq_cut_off = 150
     solvent = None
     xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
@@ -77,11 +88,12 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dir(f'benchmarking_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)
+    reaction_list = get_reaction_list(input_file)[1:2]
     start_time = time.time()
 
     successful_reactions = obtain_transition_states(target_dir, reaction_list, xtb_external_path,
-        solvent=solvent, reactive_complex_factor_list=reactive_complex_factor_list, 
+        solvent=solvent, reactive_complex_factor_list_intramolecular=reactive_complex_factor_list_intramolecular, 
+        reactive_complex_factor_list_intermolecular = reactive_complex_factor_list_intermolecular, 
         freq_cut_off=freq_cut_off)
 
     print_statistics(successful_reactions, start_time)

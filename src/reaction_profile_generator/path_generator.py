@@ -23,7 +23,7 @@ xtb = ade.methods.XTB()
 
 
 class PathGenerator:
-    def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, solvent=None, reactive_complex_factor=2.0, freq_cut_off=150):
+    def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=100):
         self.reactant_smiles = reactant_smiles
         self.product_smiles = product_smiles
         self.rxn_id = rxn_id
@@ -47,9 +47,8 @@ class PathGenerator:
         self.owning_dict_psmiles = get_owning_mol_dict(product_smiles)
 
         self.formation_constraints = self.get_optimal_distances()
-        self.formation_constraints_stretched = self.get_formation_constraints_stretched()
 
-        self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name()
+        self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(n_conf)
 
         self.minimal_fc = self.determine_minimal_fc()
 
@@ -63,8 +62,7 @@ class PathGenerator:
                 if potentials[-1] > min(fc, 0.005):
                     continue  # Means that you haven't reached the products at the end of the biased optimization
                 else:
-                    if not self.endpoint_is_product(atoms, coords):
-                        path_xyz_files = get_path_xyz_files(atoms, coords, fc) 
+                    if not self.endpoint_is_product(atoms, coords): 
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
                     else:
@@ -101,7 +99,8 @@ class PathGenerator:
 
         return formation_constraints_stretched
     
-    def get_stereo_correct_conformer_name(self):
+    def get_stereo_correct_conformer_name(self, n_conf=100):
+        formation_constraints_stretched = self.get_formation_constraints_stretched()
         get_conformer(self.reactant_rdkit_mol)
     
         stereochemistry_smiles = find_stereocenters(self.reactant_rdkit_mol)
@@ -115,31 +114,33 @@ class PathGenerator:
         for bond in self.reactant_rdkit_mol.GetBonds():
             i,j = self.atom_map_dict[bond.GetBeginAtom().GetAtomMapNum()], self.atom_map_dict[bond.GetEndAtom().GetAtomMapNum()]
 
-            if (i, j) not in self.formation_constraints_stretched and (j, i) not in self.formation_constraints_stretched:
+            if (i, j) not in formation_constraints_stretched and (j, i) not in formation_constraints_stretched:
                 bonds.append((i,j))
 
         ade_mol.graph.edges = bonds
 
         # find good starting conformer
-        for n in range(100):
-            atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=self.formation_constraints_stretched, conf_n=n, save_xyz=False) # set save_xyz to false to ensure new optimization
-            conformer = Conformer(name=f"conformer_reactants_init", atoms=atoms, charge=self.charge, dist_consts=self.formation_constraints_stretched)
+        for n in range(n_conf):
+            atoms = conf_gen.get_simanl_atoms(species=ade_mol, dist_consts=formation_constraints_stretched, conf_n=n, save_xyz=False) # set save_xyz to false to ensure new optimization
+            conformer = Conformer(name=f"conformer_reactants_init", atoms=atoms, charge=self.charge, dist_consts=formation_constraints_stretched)
             write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
             stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.reactant_smiles)
 
             if stereochemistry_smiles == stereochemistry_conformer:
                 return conformer.name
 
-        print(f'No stereo-compatible conformer found for reaction {self.rxn_id}')
+        # print that there is an error with the stereochemistry only when you do a full search, i.e., n_conf > 1
+        if n_conf > 1:
+            print(f'No stereo-compatible conformer found for reaction {self.rxn_id}')
 
         return conformer.name
 
     def get_reactive_complex(self, fc):
+        formation_constraints_stretched = self.get_formation_constraints_stretched()
+        
         ade_mol_optimized = ade.Molecule(f'{self.stereo_correct_conformer_name}.xyz', charge=self.charge)
 
-        xtb_constraints = get_xtb_constraints(ade_mol_optimized, self.formation_constraints_stretched)
-
-        ade_mol_optimized.constraints.update(xtb_constraints)
+        ade_mol_optimized.constraints.update(formation_constraints_stretched)
 
         xtb.force_constant = fc
         ade_mol_optimized.optimise(method=xtb)
@@ -342,22 +343,6 @@ def write_xyz_file_from_mol(mol, filename, reordering_dict=None):
         for i in range(mol.GetNumAtoms()):
             symbol, x, y, z = atom_info[i]
             f.write(f"{symbol} {x:.6f} {y:.6f} {z:.6f}\n")
-
-
-def get_xtb_constraints(ade_mol_optimized, constraints):
-    """ """
-    xtb_constraints = dict()
-    dist_matrix = distance_matrix(ade_mol_optimized.atoms.coordinates, ade_mol_optimized.atoms.coordinates)
-    active_atoms = set()
-    for x,y in constraints.keys():
-        active_atoms.add(x)
-        active_atoms.add(y)
-    for atom1 in list(active_atoms):
-        for atom2 in list(active_atoms):
-            if atom1 < atom2:
-                xtb_constraints[(atom1, atom2)] = dist_matrix[atom1, atom2]
-    
-    return xtb_constraints
 
 
 def read_energy_coords_file(file_path):

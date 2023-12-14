@@ -10,12 +10,13 @@ from reaction_profile_generator.irc_search import generate_gaussian_irc_input, e
 
 class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, solvent=None, 
-                 reactive_complex_factor_values=[2.0], freq_cut_off=150):
+                reactive_complex_factor_values_inter= [2.5], reactive_complex_factor_values_intra = [1.1], freq_cut_off=150):
         self.rxn_id = rxn_id
         self.reactant_smiles = reaction_smiles.split('>>')[0]
         self.product_smiles = reaction_smiles.split('>>')[-1]
         self.solvent = solvent
-        self.reactive_complex_factor_values = reactive_complex_factor_values
+        self.reactive_complex_factor_values_inter = reactive_complex_factor_values_inter
+        self.reactive_complex_factor_values_intra = reactive_complex_factor_values_intra
         self.freq_cut_off = freq_cut_off
         self.xtb_external_path = xtb_external_path
 
@@ -60,12 +61,12 @@ class TSOptimizer:
 
         self.ts_guess_list = ts_guess_list
 
-    def set_up_path_generator(self, reactive_complex_factor):
+    def set_up_path_generator(self, reactive_complex_factor, n_conf=100):
         path = PathGenerator(self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                             self.solvent, reactive_complex_factor, self.freq_cut_off)
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
         if len(path.formed_bonds) < len(path.broken_bonds):
             path = PathGenerator(self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                             self.solvent, reactive_complex_factor, self.freq_cut_off)
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
 
         return path
 
@@ -149,7 +150,14 @@ class TSOptimizer:
                 return False
         except:
             return False
-    
+        
+    def reaction_is_intramolecular(self):
+        path = self.set_up_path_generator(reactive_complex_factor=1.2, n_conf=1)
+        if len(path.reactant_smiles.split('.')) == 1:
+            return True
+        else:
+            return False
+ 
     def save_final_ts_guess_files(self, xyz_file, log_file):
         shutil.copy(xyz_file, self.final_guess_dir)
         shutil.copy(log_file, self.final_guess_dir)
