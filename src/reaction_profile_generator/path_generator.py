@@ -23,7 +23,8 @@ xtb = ade.methods.XTB()
 
 
 class PathGenerator:
-    def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=100):
+    def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
+                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=100):
         self.reactant_smiles = reactant_smiles
         self.product_smiles = product_smiles
         self.rxn_id = rxn_id

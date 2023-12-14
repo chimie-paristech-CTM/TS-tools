@@ -5,6 +5,7 @@ import multiprocessing
 import concurrent.futures
 
 from reaction_profile_generator.ts_optimizer import TSOptimizer
+from reaction_profile_generator.utils import remove_files_in_directory, copy_final_outputs
 
 
 def get_reaction_list(filename):
@@ -28,6 +29,7 @@ def optimize_ts(ts_optimizer):
             try:
                 ts_optimizer.set_ts_guess_list(reactive_complex_factor)
                 ts_found = ts_optimizer.determine_ts() 
+                remove_files_in_directory(os.getcwd())
                 if ts_found:
                     print(f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor}!')
 
@@ -42,8 +44,10 @@ def optimize_ts(ts_optimizer):
 def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent, 
                              reactive_complex_factor_list_intermolecular, 
                              reactive_complex_factor_list_intramolecular, freq_cut_off):
+    home_dir = os.getcwd()
     os.chdir(target_dir)
     ts_optimizer_list = []
+
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path, 
                                              solvent, reactive_complex_factor_list_intermolecular,
@@ -58,6 +62,9 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
         results = list(executor.map(optimize_ts, ts_optimizer_list))
 
     successful_reactions = [r for r in results if r is not None]
+
+    os.chdir(home_dir)
+    copy_final_outputs(target_dir)
 
     return successful_reactions
 

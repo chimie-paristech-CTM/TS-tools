@@ -1,48 +1,10 @@
 import os
-from typing import Callable
-from functools import wraps
 from rdkit import Chem
 import subprocess
+import shutil
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
-
-
-def work_in(dir_ext: list) -> Callable:
-    """
-    Decorator to execute a function in a different directory.
-
-    Args:
-        dir_ext (list: List containing subdirectory name to create or use.
-
-    Returns:
-        Callable: Decorated function.
-    """
-
-    def func_decorator(func):
-        @wraps(func)
-        def wrapped_function(*args, **kwargs):
-
-            here = os.getcwd()
-            dir_path = os.path.join(here, dir_ext[0])
-
-            if not os.path.isdir(dir_path):
-                os.mkdir(dir_path)
-
-            os.chdir(dir_path)
-            try:
-                result = func(*args, **kwargs)
-            finally:
-                os.chdir(here)
-
-                if len(os.listdir(dir_path)) == 0:
-                    os.rmdir(dir_path)
-
-            return result
-
-        return wrapped_function
-
-    return func_decorator
 
 
 def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', extra_commands='opt=(calcfc,ts, noeigen) freq=noraman'):
@@ -176,6 +138,36 @@ def run_irc(input_file):
             stdout=out,
             stderr=subprocess.DEVNULL,
         )
+
+def copy_final_outputs(dir_name):
+    os.makedirs('final_outputs', exist_ok=True)
+    for reaction_dir in os.listdir(dir_name):
+        print(reaction_dir)
+        final_ts_guess_dir = os.path.join(os.path.join(dir_name, reaction_dir), 'final_ts_guess')
+        if len(os.listdir(final_ts_guess_dir)) != 0:
+            shutil.copytree(final_ts_guess_dir, os.path.join('final_outputs', f'final_outputs_{reaction_dir}'))
+            shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/reactants_geometry.xyz'),
+                        os.path.join('final_outputs', f'final_outputs_{reaction_dir}/'))
+            shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/products_geometry.xyz'),
+                        os.path.join('final_outputs', f'final_outputs_{reaction_dir}/'))
+
+
+def remove_files_in_directory(directory):
+    try:
+        # List all items in the directory
+        items = os.listdir(directory)
+
+        # Iterate over each item and remove only files
+        for item_name in items:
+            item_path = os.path.join(directory, item_name)
+
+            if os.path.isfile(item_path):
+                os.remove(item_path)
+            elif os.path.isdir(item_path):
+                continue
+
+    except Exception as e:
+        print(f"Error during file removal: {e}")
 
 
 if __name__ == '__main__':

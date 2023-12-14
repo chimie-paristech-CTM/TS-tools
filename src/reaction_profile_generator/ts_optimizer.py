@@ -4,7 +4,7 @@ import shutil
 
 from reaction_profile_generator.path_generator import PathGenerator
 from reaction_profile_generator.confirm_ts_guess import validate_ts_guess
-from reaction_profile_generator.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc
+from reaction_profile_generator.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory
 from reaction_profile_generator.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
 
 
@@ -33,6 +33,8 @@ class TSOptimizer:
     def determine_ts(self):
         if self.ts_guess_list == None:
             return False
+        
+        remove_files_in_directory(self.g16_dir)
 
         for i, guess_file in enumerate(self.ts_guess_list):
             if self.solvent is not None:
