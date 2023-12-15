@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import shutil
+from rdkit import Chem
 
 from reaction_profile_generator.path_generator import PathGenerator
 from reaction_profile_generator.confirm_ts_guess import validate_ts_guess
@@ -19,6 +20,8 @@ class TSOptimizer:
         self.reactive_complex_factor_values_intra = reactive_complex_factor_values_intra
         self.freq_cut_off = freq_cut_off
         self.xtb_external_path = xtb_external_path
+
+        self.charge, self.multiplicity = self.get_charge_and_multiplicity()
 
         self.reaction_dir = self.make_work_dir()
 
@@ -64,10 +67,15 @@ class TSOptimizer:
         self.ts_guess_list = ts_guess_list
 
     def set_up_path_generator(self, reactive_complex_factor, n_conf=100):
+        # quick run to see if inversion is needed
         path = PathGenerator(self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=1)
+        
         if len(path.formed_bonds) < len(path.broken_bonds):
             path = PathGenerator(self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
+        else:
+            path = PathGenerator(self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
                              self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
 
         return path
@@ -128,7 +136,9 @@ class TSOptimizer:
     def generate_g16_input_ts_opt(self, idx, file_name, method, basis_set='', 
                              extra_commands='opt=(ts, calcall, noeigen, nomicro)'):
         ts_search_inp_file = os.path.join(self.g16_dir, f'ts_guess_{idx}.com')
-        xyz_to_gaussian_input(os.path.join(self.path_dir, file_name), ts_search_inp_file, method=method, basis_set=basis_set, extra_commands=extra_commands)
+        xyz_to_gaussian_input(os.path.join(self.path_dir, file_name), ts_search_inp_file, 
+                              method=method, basis_set=basis_set, extra_commands=extra_commands,
+                              charge=self.charge, multiplicity=self.multiplicity)
 
         return ts_search_inp_file
 
@@ -136,7 +146,8 @@ class TSOptimizer:
         try:
             extract_transition_state_geometry(log_file, f'{os.path.splitext(log_file)[0]}.xyz')
             irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(f'{os.path.splitext(log_file)[0]}.xyz', 
-                output_prefix=f'{os.path.splitext(log_file)[0]}_irc', method=f'external={self.xtb_external_path}', solvent=self.solvent)
+                output_prefix=f'{os.path.splitext(log_file)[0]}_irc', method=f'external={self.xtb_external_path}', 
+                solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity)
             run_irc(irc_input_file_f)
             run_irc(irc_input_file_r)
             extract_irc_geometries(f'{os.path.splitext(irc_input_file_f)[0]}.log', f'{os.path.splitext(irc_input_file_r)[0]}.log')
@@ -156,11 +167,29 @@ class TSOptimizer:
         
     def reaction_is_intramolecular(self):
         path = self.set_up_path_generator(reactive_complex_factor=1.2, n_conf=1)
+        #print(path.formation_constraints)
+        #print(path.reactant_smiles.split('.'))
         if len(path.reactant_smiles.split('.')) == 1:
             return True
         else:
             return False
- 
+
+    # TODO: What about triplet states?
+    def get_charge_and_multiplicity(self):
+        mol = Chem.MolFromSmiles(self.reactant_smiles)
+        charge = Chem.GetFormalCharge(mol)
+        total_electrons = 0
+
+        for atom in mol.GetAtoms():
+            # Add the atomic number
+            total_electrons += atom.GetAtomicNum()
+
+        # subtract the net charge        
+        total_electrons -= charge
+        multiplicity = total_electrons % 2 + 1
+        
+        return charge, multiplicity
+
     def save_final_ts_guess_files(self, xyz_file, log_file):
         shutil.copy(xyz_file, self.final_guess_dir)
         shutil.copy(log_file, self.final_guess_dir)

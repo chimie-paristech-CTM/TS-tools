@@ -8,12 +8,10 @@ from autode.conformers import conf_gen, Conformer
 from scipy.spatial import distance_matrix
 import copy
 import subprocess
-import re
 import shutil
 import random
 
 from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
-from reaction_profile_generator.confirm_ts_guess import validate_ts_guess
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -24,7 +22,7 @@ xtb = ade.methods.XTB()
 
 class PathGenerator:
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
-                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=100):
+                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=20):
         self.reactant_smiles = reactant_smiles
         self.product_smiles = product_smiles
         self.rxn_id = rxn_id
@@ -49,9 +47,10 @@ class PathGenerator:
 
         self.formation_constraints = self.get_optimal_distances()
 
-        self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(n_conf)
+        self.stereo_correct_conformer_name, self.reactant_bonds = self.get_stereo_correct_conformer_name(n_conf)
 
-        self.minimal_fc = self.determine_minimal_fc()
+        if n_conf > 1:
+            self.minimal_fc = self.determine_minimal_fc()
 
     def get_path(self):
         path_xyz_files = None
@@ -63,7 +62,8 @@ class PathGenerator:
                 if potentials[-1] > min(fc, 0.005):
                     continue  # Means that you haven't reached the products at the end of the biased optimization
                 else:
-                    if not self.endpoint_is_product(atoms, coords): 
+                    if not self.endpoint_is_product(atoms, coords):
+                        path_xyz_files = get_path_xyz_files(atoms, coords, fc)  
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
                     else:
@@ -105,6 +105,9 @@ class PathGenerator:
         get_conformer(self.reactant_rdkit_mol)
     
         stereochemistry_smiles = find_stereocenters(self.reactant_rdkit_mol)
+        # only consider defined smiles stereocenters!
+        stereo_elements_to_consider = {str(d['position']) for d in stereochemistry_smiles}
+
         write_xyz_file_from_mol(self.reactant_rdkit_mol, 'input_reactants.xyz', self.atom_map_dict)
         ade_mol = ade.Molecule(f'input_reactants.xyz', charge=self.charge)
 
@@ -126,19 +129,20 @@ class PathGenerator:
             conformer = Conformer(name=f"conformer_reactants_init", atoms=atoms, charge=self.charge, dist_consts=formation_constraints_stretched)
             write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
             stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.reactant_smiles)
+            stereochemistry_conformer = [d for d in stereochemistry_conformer if str(d['position']) in stereo_elements_to_consider]
 
             if stereochemistry_smiles == stereochemistry_conformer:
-                return conformer.name
+                return conformer.name, bonds
 
         # print that there is an error with the stereochemistry only when you do a full search, i.e., n_conf > 1
         if n_conf > 1:
             print(f'No stereo-compatible conformer found for reaction {self.rxn_id}')
 
-        return conformer.name
+        return conformer.name, bonds
 
     def get_reactive_complex(self, fc):
         formation_constraints_stretched = self.get_formation_constraints_stretched()
-        
+
         ade_mol_optimized = ade.Molecule(f'{self.stereo_correct_conformer_name}.xyz', solvent_name=self.solvent, charge=self.charge)
 
         ade_mol_optimized.constraints.update(formation_constraints_stretched)

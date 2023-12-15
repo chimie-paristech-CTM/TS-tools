@@ -7,7 +7,8 @@ ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
 
-def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', extra_commands='opt=(calcfc,ts, noeigen) freq=noraman'):
+def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', 
+                          extra_commands='opt=(calcfc,ts, noeigen) freq=noraman', charge=0, multiplicity=1):
     """
     Convert an XYZ file to Gaussian 16 input file format.
 
@@ -33,7 +34,7 @@ def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-3
         gaussian_input.write('\n\nTitle\n\n')
 
         # Write the charge and multiplicity section
-        gaussian_input.write('0 1\n')
+        gaussian_input.write(f'{charge} {multiplicity}\n')
 
         # Write the Cartesian coordinates section
         for line in atom_lines:
@@ -142,14 +143,16 @@ def run_irc(input_file):
 def copy_final_outputs(dir_name):
     os.makedirs('final_outputs', exist_ok=True)
     for reaction_dir in os.listdir(dir_name):
-        print(reaction_dir)
-        final_ts_guess_dir = os.path.join(os.path.join(dir_name, reaction_dir), 'final_ts_guess')
-        if len(os.listdir(final_ts_guess_dir)) != 0:
-            shutil.copytree(final_ts_guess_dir, os.path.join('final_outputs', f'final_outputs_{reaction_dir}'))
-            shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/reactants_geometry.xyz'),
+        try:
+            final_ts_guess_dir = os.path.join(os.path.join(dir_name, reaction_dir), 'final_ts_guess')
+            if len(os.listdir(final_ts_guess_dir)) != 0:
+                shutil.copytree(final_ts_guess_dir, os.path.join('final_outputs', f'final_outputs_{reaction_dir}'))
+                shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/reactants_geometry.xyz'),
                         os.path.join('final_outputs', f'final_outputs_{reaction_dir}/'))
-            shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/products_geometry.xyz'),
+                shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/products_geometry.xyz'),
                         os.path.join('final_outputs', f'final_outputs_{reaction_dir}/'))
+        except:
+            continue
 
 
 def remove_files_in_directory(directory):
