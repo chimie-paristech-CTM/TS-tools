@@ -97,7 +97,7 @@ def measure_time():
 if __name__ == "__main__":
     # settings
     reactive_complex_factor_list_intramolecular = [1.2, 1.3, 1.4, 1.6, 1.8]
-    reactive_complex_factor_list_intermolecular = [2.5, 1.8, 2.8, 2.6, 3.0, 2.3]
+    reactive_complex_factor_list_intermolecular = [2.3]#[2.5, 1.8, 2.8, 2.6, 3.0, 2.3]
     freq_cut_off = 150
     solvent = None #'water' #None
     xtb_external_path = '"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"'
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     # preliminaries
     input_file = 'reactions_am.txt'
     target_dir = setup_dir(f'benchmarking_{freq_cut_off}')
-    reaction_list = get_reaction_list(input_file)
+    reaction_list = get_reaction_list(input_file)[54:55]
     #reaction_list = [['R1','[H:1][C:2]([H:3])=[C:4]([H:5])[H:6].[H:7][C:8]([H:9])=[C:10]([H:11])[H:12].[H:13][C:14]([H:15])=[C:16]([H:17])[H:18]>>[C:2]1([H:1])([H:3])[C:4]([H:5])([H:6])[C:8]([H:7])([H:9])[C:10]([H:11])([H:12])[C:14]([H:13])([H:15])[C:16]([H:17])([H:18])1'],
     #                 ['R2', '[H:1][C:2]([H:3])=[O:4].[H:5][O:6][H:7].[H:8][C:9]([H:10])=[C:11]([H:12])[O:13][H:14]>>[H:8][C:9]([H:10])([C:2]([H:1])([H:3])[O:4][H:5])[C:11]([H:12])=[O:13].[H:14][O:6][H:7]']]
     #    ['R3','[H:8][C:1]#[N:2].[H:7][C:3]#[N:4].[C-:5]#[N:6]>>[C-:3]#[N:4].[C:1](=[N:2][H:7])([C:5]#[N:6])[H:8]']]

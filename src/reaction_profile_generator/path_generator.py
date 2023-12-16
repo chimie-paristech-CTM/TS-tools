@@ -65,8 +65,7 @@ class PathGenerator:
                 else:
                     if not self.endpoint_is_product(atoms, coords):
                         # update the stereo correct conformer if failure
-                        self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(self.n_conf)
-                        path_xyz_files = get_path_xyz_files(atoms, coords, fc)  
+                        #path_xyz_files = get_path_xyz_files(atoms, coords, fc)  
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
                     else:
@@ -77,16 +76,18 @@ class PathGenerator:
         return None, None, None
 
     def determine_minimal_fc(self):
-        minimal_fc_crude = self.screen_fc_range(0.1, 4.0, 0.1)
+        minimal_fc_crude = self.screen_fc_range(0.1, 4.0, 0.1, 5)
         if minimal_fc_crude is not None:
             # overstretch range a bit because otherwise you may end up aborting the search prematurely
-            minimal_fc_refined = self.screen_fc_range(minimal_fc_crude - 0.09, minimal_fc_crude + 0.03, 0.01)
+            minimal_fc_refined = self.screen_fc_range(minimal_fc_crude - 0.09, minimal_fc_crude + 0.03, 0.01,2)
         
         return minimal_fc_refined
     
-    def screen_fc_range(self, start, end, interval):
+    def screen_fc_range(self, start, end, interval, n_attempts):
+        if n_attempts > 2:
+            self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(self.n_conf)
         for fc in np.arange(start, end, interval):
-            for _ in range(2):
+            for _ in range(n_attempts):
                 reactive_complex_xyz_file = self.get_reactive_complex(min(fc, 0.1))
                 _, _, _, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
                 if potentials[-1] < 0.005:
@@ -135,7 +136,7 @@ class PathGenerator:
             stereochemistry_conformer = [d for d in stereochemistry_conformer if str(d['position']) in stereo_elements_to_consider]
 
             if stereochemistry_smiles == stereochemistry_conformer:
-                return conformer.name, bonds
+                return conformer.name
 
         # print that there is an error with the stereochemistry only when you do a full search, i.e., n_conf > 1
         if n_conf > 1:
