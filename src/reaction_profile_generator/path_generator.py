@@ -19,7 +19,7 @@ bohr_ang = 0.52917721090380
 
 xtb = ade.methods.XTB()
 
-
+# TODO include multiplicity!!!!!
 class PathGenerator:
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
                  solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=20):
@@ -31,6 +31,7 @@ class PathGenerator:
         self.solvent = solvent
         self.reactive_complex_factor = reactive_complex_factor
         self.freq_cut_off = freq_cut_off
+        self.n_conf = n_conf
 
         os.chdir(self.path_dir)
 
@@ -47,9 +48,9 @@ class PathGenerator:
 
         self.formation_constraints = self.get_optimal_distances()
 
-        self.stereo_correct_conformer_name, self.reactant_bonds = self.get_stereo_correct_conformer_name(n_conf)
+        self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(n_conf)
 
-        if n_conf > 1:
+        if self.n_conf > 1:
             self.minimal_fc = self.determine_minimal_fc()
 
     def get_path(self):
@@ -63,6 +64,8 @@ class PathGenerator:
                     continue  # Means that you haven't reached the products at the end of the biased optimization
                 else:
                     if not self.endpoint_is_product(atoms, coords):
+                        # update the stereo correct conformer if failure
+                        self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(self.n_conf)
                         path_xyz_files = get_path_xyz_files(atoms, coords, fc)  
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
@@ -138,7 +141,7 @@ class PathGenerator:
         if n_conf > 1:
             print(f'No stereo-compatible conformer found for reaction {self.rxn_id}')
 
-        return conformer.name, bonds
+        return conformer.name
 
     def get_reactive_complex(self, fc):
         formation_constraints_stretched = self.get_formation_constraints_stretched()
@@ -168,6 +171,7 @@ class PathGenerator:
 
         return valid_energies, valid_coords, valid_atoms, potentials
 
+    # TODO include multiplicity!!!!!
     def xtb_optimize_with_applied_potentials(self, reactive_complex_xyz_file, fc):
         xtb_input_path = f'{os.path.splitext(reactive_complex_xyz_file)[0]}.inp'
 

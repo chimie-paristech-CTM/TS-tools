@@ -146,8 +146,8 @@ class TSOptimizer:
         try:
             extract_transition_state_geometry(log_file, f'{os.path.splitext(log_file)[0]}.xyz')
             irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(f'{os.path.splitext(log_file)[0]}.xyz', 
-                output_prefix=f'{os.path.splitext(log_file)[0]}_irc', method=f'external={self.xtb_external_path}', 
-                solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity)
+            output_prefix=f'{os.path.splitext(log_file)[0]}_irc', method=f'external={self.xtb_external_path}', 
+            solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity)
             run_irc(irc_input_file_f)
             run_irc(irc_input_file_r)
             extract_irc_geometries(f'{os.path.splitext(irc_input_file_f)[0]}.log', f'{os.path.splitext(irc_input_file_r)[0]}.log')
@@ -156,7 +156,7 @@ class TSOptimizer:
                 f'{os.path.splitext(irc_input_file_r)[0]}.xyz',
                 os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'),
                 os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'),
-                self.solvent
+                self.charge, self.multiplicity, self.solvent
             )
             if reaction_correct:
                 return True

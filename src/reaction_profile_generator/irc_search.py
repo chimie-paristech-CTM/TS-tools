@@ -144,16 +144,22 @@ def write_xtb_input_file(xyz_path):
     return file_path
 
 
-def optimize_final_point_irc(xyz_file, charge, solvent=None):
+def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
     inp_path = write_xtb_input_file(xyz_file)
     with open(f'{xyz_file[:-4]}.out', 'w') as out:
+        cmd = f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge}'
+
+        if multiplicity == 1:
+            pass
+        elif multiplicity == 2:
+            cmd += '--uhf 1'
+        
         if solvent is not None:
-            process = subprocess.Popen(f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge} --solvent {solvent}'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
-        else:
-            process = subprocess.Popen(f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge}'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
+            cmd += f'--solvent {solvent}'
+
+        process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
+
     extract_coordinates(f'{xyz_file[:-4]}.out')
 
 
@@ -164,10 +170,10 @@ def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mo
     return forward_mol, reverse_mol, reactant_mol, product_mol 
 
 
-def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0, solvent=None):
+def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0, multiplicity=1, solvent=None):
     # first reoptimize the final points
-    optimize_final_point_irc(forward_xyz, charge, solvent)
-    optimize_final_point_irc(reverse_xyz, charge, solvent)
+    optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent)
+    optimize_final_point_irc(reverse_xyz, charge, multiplicity, solvent)
     # then take final geometry and do actual comparison
     forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge)
     reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge)
