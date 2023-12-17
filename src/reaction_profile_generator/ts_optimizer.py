@@ -8,6 +8,8 @@ from reaction_profile_generator.confirm_ts_guess import validate_ts_guess
 from reaction_profile_generator.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory
 from reaction_profile_generator.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
 
+ps = Chem.SmilesParserParams()
+ps.removeHs = False
 
 class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, solvent=None, 
@@ -176,7 +178,7 @@ class TSOptimizer:
 
     # TODO: What about triplet states?
     def get_charge_and_multiplicity(self):
-        mol = Chem.MolFromSmiles(self.reactant_smiles)
+        mol = Chem.MolFromSmiles(self.reactant_smiles, ps)
         charge = Chem.GetFormalCharge(mol)
         total_electrons = 0
 
@@ -184,7 +186,7 @@ class TSOptimizer:
             # Add the atomic number
             total_electrons += atom.GetAtomicNum()
 
-        # subtract the net charge        
+        # subtract the net charge     
         total_electrons -= charge
         multiplicity = total_electrons % 2 + 1
         
