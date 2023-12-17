@@ -147,15 +147,15 @@ def write_xtb_input_file(xyz_path):
 def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
     inp_path = write_xtb_input_file(xyz_file)
     with open(f'{xyz_file[:-4]}.out', 'w') as out:
-        cmd = f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge}'
+        cmd = f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge} '
 
         if multiplicity == 1:
             pass
         elif multiplicity == 2:
-            cmd += '--uhf 1'
+            cmd += '--uhf 1 '
         
         if solvent is not None:
-            cmd += f'--solvent {solvent}'
+            cmd += f'--solvent {solvent} '
 
         process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
         process.wait()

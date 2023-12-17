@@ -71,14 +71,14 @@ class TSOptimizer:
     def set_up_path_generator(self, reactive_complex_factor, n_conf=100):
         # quick run to see if inversion is needed
         path = PathGenerator(self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=1)
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1)
         
         if len(path.formed_bonds) < len(path.broken_bonds):
             path = PathGenerator(self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf)
         else:
             path = PathGenerator(self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                             self.solvent, reactive_complex_factor, self.freq_cut_off, n_conf=n_conf)
+                             self.solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf)
 
         return path
 

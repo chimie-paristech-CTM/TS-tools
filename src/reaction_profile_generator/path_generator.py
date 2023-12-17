@@ -19,10 +19,10 @@ bohr_ang = 0.52917721090380
 
 xtb = ade.methods.XTB()
 
-# TODO include multiplicity!!!!!
+
 class PathGenerator:
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
-                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, n_conf=20):
+                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100):
         self.reactant_smiles = reactant_smiles
         self.product_smiles = product_smiles
         self.rxn_id = rxn_id
@@ -31,13 +31,14 @@ class PathGenerator:
         self.solvent = solvent
         self.reactive_complex_factor = reactive_complex_factor
         self.freq_cut_off = freq_cut_off
+        self.charge = charge
+        self.multiplicity = multiplicity
         self.n_conf = n_conf
 
         os.chdir(self.path_dir)
 
         self.reactant_rdkit_mol = Chem.MolFromSmiles(reactant_smiles, ps)
         self.product_rdkit_mol = Chem.MolFromSmiles(product_smiles, ps)
-        self.charge = Chem.GetFormalCharge(self.reactant_rdkit_mol)
         self.formed_bonds, self.broken_bonds = self.get_active_bonds_from_mols()
 
         self.atom_map_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in self.reactant_rdkit_mol.GetAtoms()}
@@ -172,7 +173,6 @@ class PathGenerator:
 
         return valid_energies, valid_coords, valid_atoms, potentials
 
-    # TODO include multiplicity!!!!!
     def xtb_optimize_with_applied_potentials(self, reactive_complex_xyz_file, fc):
         xtb_input_path = f'{os.path.splitext(reactive_complex_xyz_file)[0]}.inp'
 
@@ -183,10 +183,12 @@ class PathGenerator:
                 f.write(f'    distance: {key[0] + 1}, {key[1] + 1}, {val}\n')
             f.write('$end\n')
 
+        cmd = f'xtb {reactive_complex_xyz_file} --opt --input {xtb_input_path} -v --charge {self.charge} '
+
         if self.solvent is not None:
-            cmd = f'xtb {reactive_complex_xyz_file} --opt --input {xtb_input_path} -v --charge {self.charge} --solvent {self.solvent}'
-        else:
-            cmd = f'xtb {reactive_complex_xyz_file} --opt --input {xtb_input_path} -v --charge {self.charge}'
+            cmd += f'--solvent {self.solvent} '
+        if self.multiplicity != 1:
+            cmd += f'--uhf {self.multiplicity - 1} '
 
         with open(os.path.splitext(reactive_complex_xyz_file)[0] + '_path.out', 'w') as out:
             process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
@@ -565,10 +567,8 @@ if __name__ == '__main__':
     #product_smiles = '[N+:1]([B-:2]([H:6])([H:7])[H:12])([B:4]([N:3]([H:5])[H:10])[H:11])([H:8])[H:9]'
     #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
     #product_smiles = '[H:1][C:2]([C:3]([H:5])=[O:6])([H:4])[C:9]([O:8][H:7])([H:10])[H:11]'
-    #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
-    #product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
-    reactant_smiles = '[H:1][O:2][C:3]([H:4])([H:5])[C@@:6]1([H:7])[O:8][C@@:9]([H:10])([O:11][H:12])[C@:13]([H:14])([O:15][H:16])[C@:17]1([H:18])[O:19][H:20].[H:21][O:22][P:23](=[O:24])([O-:25])[O:26][H:27]'
-    product_smiles = '[O:25]([C@:9]1([H:10])[O:8][C@@:6]([C:3]([O:2][H:1])([H:4])[H:5])([H:7])[C@@:17]([H:18])([O:19][H:20])[C@@:13]1([H:14])[O:15][H:16])[P:23]([O:22][H:21])(=[O:24])[O:26][H:27].[O-:11][H:12]'
+    reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
+    product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
     reaction = PathGenerator(reactant_smiles, product_smiles, 'R1', 
                              '/Users/thijsstuyver/Desktop/reaction_profile_generator/path_test', 
                              '/Users/thijsstuyver/Desktop/reaction_profile_generator/rp_test')
