@@ -2,6 +2,7 @@ import os
 from rdkit import Chem
 import subprocess
 import shutil
+import time
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -140,17 +141,17 @@ def run_irc(input_file):
             stderr=subprocess.DEVNULL,
         )
 
-def copy_final_outputs(dir_name):
-    os.makedirs('final_outputs', exist_ok=True)
-    for reaction_dir in os.listdir(dir_name):
+def copy_final_outputs(work_dir, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for reaction_dir in os.listdir(work_dir):
         try:
-            final_ts_guess_dir = os.path.join(os.path.join(dir_name, reaction_dir), 'final_ts_guess')
+            final_ts_guess_dir = os.path.join(os.path.join(work_dir, reaction_dir), 'final_ts_guess')
             if len(os.listdir(final_ts_guess_dir)) != 0:
-                shutil.copytree(final_ts_guess_dir, os.path.join('final_outputs', f'final_outputs_{reaction_dir}'))
-                shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/reactants_geometry.xyz'),
-                        os.path.join('final_outputs', f'final_outputs_{reaction_dir}/'))
-                shutil.copy(os.path.join(os.path.join(dir_name, reaction_dir), 'rp_geometries/products_geometry.xyz'),
-                        os.path.join('final_outputs', f'final_outputs_{reaction_dir}/'))
+                shutil.copytree(final_ts_guess_dir, os.path.join(output_dir, f'final_outputs_{reaction_dir}'))
+                shutil.copy(os.path.join(os.path.join(work_dir, reaction_dir), 'rp_geometries/reactants_geometry.xyz'),
+                        os.path.join(output_dir, f'final_outputs_{reaction_dir}/'))
+                shutil.copy(os.path.join(os.path.join(work_dir, reaction_dir), 'rp_geometries/products_geometry.xyz'),
+                        os.path.join(output_dir, f'final_outputs_{reaction_dir}/'))
         except:
             continue
 
@@ -171,6 +172,27 @@ def remove_files_in_directory(directory):
 
     except Exception as e:
         print(f"Error during file removal: {e}")
+
+
+def get_reaction_list(filename):
+    ''' a function that opens a file, reads in every line as a reaction smiles and returns them as a list. '''
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+        reaction_list = [line.rstrip().split() for line in lines]
+    return reaction_list
+
+
+def setup_dir(target_dir):
+    if target_dir in os.listdir():
+        shutil.rmtree(target_dir)
+    os.mkdir(target_dir)
+
+
+def print_statistics(successful_reactions, start_time):
+    end_time = time.time()
+    print(f'Successful reactions: {successful_reactions}')
+    print(f'Number of successful reactions: {len(successful_reactions)}')
+    print(f'Time taken: {end_time - start_time}')
 
 
 if __name__ == '__main__':
