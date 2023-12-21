@@ -10,15 +10,21 @@ from reaction_profile_generator.utils import remove_files_in_directory, copy_fin
 
 
 def get_args():
+    """
+    Parse command-line arguments.
+
+    Returns:
+    - argparse.Namespace: Parsed command-line arguments.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--reactive-complex_factors-intra', nargs='+', type=float,
                         default=[1.2, 1.3, 1.4, 1.6, 1.8])
     parser.add_argument('--reactive-complex-factors-inter', nargs='+', type=float, 
-                        default =[2.5, 1.8, 2.8, 2.6, 3.0, 2.3, 1.7])
-    parser.add_argument('--freq-cut-off', action= 'store', type=int, default=150)
+                        default=[2.5, 1.8, 2.8, 2.6, 1.3])
+    parser.add_argument('--freq-cut-off', action='store', type=int, default=150)
     parser.add_argument('--solvent', action='store', type=str, default=None)
     parser.add_argument('--xtb-external-path', action='store', type=str, 
-        default='"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
+                        default='"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
     parser.add_argument('--input-file', action='store', type=str, default='reactions_am.txt')
     parser.add_argument('--target-dir', action='store', type=str, default='work_dir')
 
@@ -26,51 +32,75 @@ def get_args():
 
 
 def optimize_individual_ts(ts_optimizer):
-    # first select the set of reactive_complex factor values to try
+    """
+    Optimize an individual transition state.
+
+    Parameters:
+    - ts_optimizer: Instance of TSOptimizer.
+
+    Returns:
+    - int or None: Reaction ID if a transition state is found, None otherwise.
+    """
+    # First select the set of reactive_complex factor values to try
     start_time_process = time.time()
+
     if ts_optimizer.reaction_is_intramolecular():
         reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_intra
     else:
         reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_inter
-    # then search for TS by iterating through reactive complex factor values
+
+    # Then search for TS by iterating through reactive complex factor values
     for reactive_complex_factor in reactive_complex_factor_values:
-        print(reactive_complex_factor)
         for _ in range(2):
-            #try:
-            ts_optimizer.set_ts_guess_list(reactive_complex_factor)
-            ts_found = ts_optimizer.determine_ts() 
-            remove_files_in_directory(os.getcwd())
-            if ts_found:
-                end_time_process = time.time()
-                print(f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor} in {end_time_process - start_time_process} sec...')
-                return ts_optimizer.rxn_id
-            #except Exception as e:
-            #    print(e)
-            #    continue
-    
+            try:
+                ts_optimizer.set_ts_guess_list(reactive_complex_factor)
+                ts_found = ts_optimizer.determine_ts() 
+                remove_files_in_directory(os.getcwd())
+                if ts_found:
+                    end_time_process = time.time()
+                    print(f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor} in {end_time_process - start_time_process} sec...')
+                    return ts_optimizer.rxn_id
+            except Exception as e:
+                print(e)
+                continue
+
     end_time_process = time.time()
     print(f'No TS guess found for {ts_optimizer.rxn_id}; process lasted for {end_time_process - start_time_process} sec...')
-    
+
     return None
 
-
-def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent, 
-                             reactive_complex_factor_list_intermolecular, 
+def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent,
+                             reactive_complex_factor_list_intermolecular,
                              reactive_complex_factor_list_intramolecular, freq_cut_off):
+    """
+    Obtain transition states for a list of reactions.
+
+    Parameters:
+    - target_dir (str): Target directory.
+    - reaction_list (list): List of reactions.
+    - xtb_external_path (str): Path to the XTB external script.
+    - solvent (str): Solvent information.
+    - reactive_complex_factor_list_intermolecular (list): List of reactive complex factors for intermolecular reactions.
+    - reactive_complex_factor_list_intramolecular (list): List of reactive complex factors for intramolecular reactions.
+    - freq_cut_off (int): Frequency cutoff.
+
+    Returns:
+    - list: List of successful reactions.
+    """
     home_dir = os.getcwd()
     os.chdir(target_dir)
     ts_optimizer_list = []
 
     for rxn_idx, rxn_smiles in reaction_list:
-        ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path, 
+        ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path,
                                              solvent, reactive_complex_factor_list_intermolecular,
                                              reactive_complex_factor_list_intramolecular, freq_cut_off))
 
     print(f'{len(ts_optimizer_list)} reactions to process...')
 
     num_processes = multiprocessing.cpu_count()
-    
-    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_processes/2)) as executor: 
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_processes/2)) as executor:
         # Map the function to each object in parallel
         results = list(executor.map(optimize_individual_ts, ts_optimizer_list))
 

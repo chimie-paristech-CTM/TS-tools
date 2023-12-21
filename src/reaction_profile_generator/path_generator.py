@@ -64,9 +64,8 @@ class PathGenerator:
                 if potentials[-1] > min(fc, 0.005):
                     continue  # Means that you haven't reached the products at the end of the biased optimization
                 else:
-                    if not self.endpoint_is_product(atoms, coords):
-                        # update the stereo correct conformer if failure
-                        #path_xyz_files = get_path_xyz_files(atoms, coords, fc)  
+                    if not (self.endpoint_is_product(atoms, coords) and self.beginpoint_is_reactant(atoms, coords)):
+                        # update the stereo correct conformer if failure 
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
                     else:
@@ -186,7 +185,7 @@ class PathGenerator:
         cmd = f'xtb {reactive_complex_xyz_file} --opt --input {xtb_input_path} -v --charge {self.charge} '
 
         if self.solvent is not None:
-            cmd += f'--solvent {self.solvent} '
+            cmd += f'--alpb {self.solvent} '
         if self.multiplicity != 1:
             cmd += f'--uhf {self.multiplicity - 1} '
 
@@ -263,8 +262,20 @@ class PathGenerator:
         write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'))
         write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'))
 
+    def beginpoint_is_reactant(self, atoms, coords):
+        reactant_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2])) 
+                         for atom1,atom2 in get_bonds(self.reactant_rdkit_mol)]
+        write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], 'reactant_geometry.xyz')
+        ade_mol_r = ade.Molecule('reactant_geometry.xyz', name='reactant_geometry', charge=self.charge)
+
+        if set(ade_mol_r.graph.edges) == set(reactant_bonds):
+            return True
+        else:
+            return False
+
     def endpoint_is_product(self, atoms, coords):
-        product_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2])) for atom1,atom2 in get_bonds(self.product_rdkit_mol)]
+        product_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2])) 
+                         for atom1,atom2 in get_bonds(self.product_rdkit_mol)]
         write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], 'products_geometry.xyz')
         ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge)
 

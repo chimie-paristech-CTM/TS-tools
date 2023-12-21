@@ -155,7 +155,7 @@ def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
             cmd += '--uhf 1 '
         
         if solvent is not None:
-            cmd += f'--solvent {solvent} '
+            cmd += f'--alpb {solvent} '
 
         process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
@@ -169,7 +169,7 @@ def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mo
 
     return forward_mol, reverse_mol, reactant_mol, product_mol 
 
-
+#TODO: optimize in case of DFT???
 def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0, multiplicity=1, solvent=None):
     # first reoptimize the final points
     optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent)
@@ -188,9 +188,11 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
             return True
         else:
             continue
+    
+    return False
 
 
-def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LYP/6-31G*', 
+def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LYP/6-31G**', 
                                 mem='2GB', proc=2, solvent=None, charge=0, multiplicity=1):
     # Read the XYZ file
     with open(xyz_file, 'r') as xyz:
@@ -243,8 +245,8 @@ if __name__ == '__main__':
     #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
     #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
     # optimize_final_point_irc('lol/ts_guess_4_irc_forward.xyz', 0)
-    #reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_forward.xyz', 
-    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/ts_guess_4_irc_reverse.xyz',
+    #reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/test_rahm_water/reaction_R2/g16_dir/ts_guess_0_irc_forward.xyz', 
+    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/test_rahm_water/reaction_R2/g16_dir/ts_guess_0_irc_reverse.xyz',
     #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 
     #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
     #print(reaction_correct)
