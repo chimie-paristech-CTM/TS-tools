@@ -66,9 +66,23 @@ def write_xyz_file_from_ade_atoms(atoms, filename):
 
 
 def write_final_geometry_to_xyz(log_file_path):
+    """
+    Extract and write the final geometry from a Gaussian log file to an XYZ file.
+
+    Parameters:
+    - log_file_path (str): Path to the Gaussian log file.
+
+    Returns:
+    str: Path to the generated XYZ file.
+    """
     final_geometry = []
     reading_geometry = False
     after_transition_state_opt = False
+
+    # Check if the file is a Gaussian log file
+    if not is_gaussian_log_file(log_file_path):
+        print(f"Not a Gaussian log file: {log_file_path}")
+        return None
 
     xyz_file_path = os.path.splitext(log_file_path)[0] + ".xyz"
 
@@ -77,30 +91,25 @@ def write_final_geometry_to_xyz(log_file_path):
             for line in log_file:
                 if 'Stationary point found' in line:
                     after_transition_state_opt = True
-                if after_transition_state_opt:
-                    if 'Standard orientation' in line:
-                        reading_geometry = True
-                        final_geometry = []
-                    elif reading_geometry:
-                        # Lines with atomic coordinates are indented
-                        columns = line.split()
-                        if len(columns) == 6:
-                            try:
-                                atom_info = {
-                                    'atom': int(columns[0]),
-                                    'symbol': int(columns[1]),
-                                    'x': float(columns[3]),
-                                    'y': float(columns[4]),
-                                    'z': float(columns[5])
-                                }
-                                final_geometry.append(atom_info)
-                            except:
-                                continue
-                        else:
-                            if len(final_geometry) != 0 and '-----------------------------' in line:
-                                break
+                if after_transition_state_opt and 'Standard orientation' in line:
+                    reading_geometry = True
+                elif reading_geometry and '-----------------------------' in line:
+                    break
+                elif reading_geometry:
+                    columns = line.split()
+                    if len(columns) == 6:
+                        try:
+                            atom_info = {
+                                'symbol': columns[1],
+                                'x': float(columns[3]),
+                                'y': float(columns[4]),
+                                'z': float(columns[5])
+                            }
+                            final_geometry.append(atom_info)
+                        except ValueError:
+                            continue
 
-        if len(final_geometry) != 0:
+        if final_geometry:
             with open(xyz_file_path, 'w') as xyz_file:
                 num_atoms = len(final_geometry)
                 xyz_file.write(f"{num_atoms}\n")
@@ -110,89 +119,219 @@ def write_final_geometry_to_xyz(log_file_path):
 
     except FileNotFoundError:
         print(f"File not found: {log_file_path}")
+        return None
+    except Exception as e:
+        print(f"Error processing Gaussian log file: {e}")
+        return None
     
     return xyz_file_path
 
 
+def is_gaussian_log_file(file_path):
+    """
+    Check if a file appears to be a Gaussian log file based on its contents.
+
+    Parameters:
+    - file_path (str): Path to the file.
+
+    Returns:
+    bool: True if the file appears to be a Gaussian log file, False otherwise.
+    """
+    try:
+        with open(file_path, 'r') as file:
+            # Check for Gaussian header in the first few lines
+            for _ in range(10):
+                line = next(file).strip()
+                if line.startswith("#") or "Gaussian" in line:
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
 def run_g16_ts_optimization(file_path):
-    # Run Gaussian 16 using nohup and redirect stderr to /dev/null
+    """
+    Run Gaussian 16 for transition state optimization.
+
+    Parameters:
+    - file_path (str): Path to the Gaussian input file.
+
+    Returns:
+    str: Path to the Gaussian log file.
+    """
+    # Set up file paths
     log_file = os.path.splitext(file_path)[0] + ".log"
     out_file = os.path.splitext(file_path)[0] + ".out"
-                
+
+    # Run Gaussian 16 using subprocess.run
     with open(out_file, 'w') as out:
-        subprocess.run(
-            f"g16 < {file_path} > {log_file}",
-            shell=True,
-            stdout=out,
-            stderr=subprocess.DEVNULL,
-        ) 
-    
+        try:
+            subprocess.run(
+                ["g16", "<", file_path, ">", log_file],
+                shell=True,
+                stdout=out,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error running Gaussian 16: {e}")
+            return None
+
     return log_file
 
+
 def run_irc(input_file):
+    """
+    Run IRC (Intrinsic Reaction Coordinate) calculation using Gaussian 16.
+
+    Parameters:
+    - input_file (str): Path to the Gaussian input file.
+
+    Returns:
+    None
+    """
     out_file = f'{input_file[:-4]}.out'
     log_file = f'{input_file[:-4]}.log'
 
-    with open(out_file, 'w') as out:
-        subprocess.run(
-            f"g16 < {input_file} >> {log_file}",
-            shell=True,
-            stdout=out,
-            stderr=subprocess.DEVNULL,
-        )
+    try:
+        with open(out_file, 'w') as out:
+            subprocess.run(
+                ["g16", "<", input_file, ">>", log_file],
+                shell=True,
+                stdout=out,
+                stderr=subprocess.DEVNULL,
+                check=True,
+            )
+    except subprocess.CalledProcessError as e:
+        print(f"Error running Gaussian 16 IRC: {e}")
+
 
 def copy_final_outputs(work_dir, output_dir):
+    """
+    Copy final outputs from a working directory to an output directory.
+
+    Parameters:
+    - work_dir (str): Path to the working directory.
+    - output_dir (str): Path to the output directory.
+
+    Returns:
+    None
+    """
     os.makedirs(output_dir, exist_ok=True)
+
     for reaction_dir in os.listdir(work_dir):
         try:
-            final_ts_guess_dir = os.path.join(os.path.join(work_dir, reaction_dir), 'final_ts_guess')
-            if len(os.listdir(final_ts_guess_dir)) != 0:
-                shutil.copytree(final_ts_guess_dir, os.path.join(output_dir, f'final_outputs_{reaction_dir}'))
-                shutil.copy(os.path.join(os.path.join(work_dir, reaction_dir), 'rp_geometries/reactants_geometry.xyz'),
-                        os.path.join(output_dir, f'final_outputs_{reaction_dir}/'))
-                shutil.copy(os.path.join(os.path.join(work_dir, reaction_dir), 'rp_geometries/products_geometry.xyz'),
-                        os.path.join(output_dir, f'final_outputs_{reaction_dir}/'))
-        except:
+            final_ts_guess_dir = os.path.join(work_dir, reaction_dir, 'final_ts_guess')
+            
+            # Check if final_ts_guess_dir is a directory and not empty
+            if os.path.isdir(final_ts_guess_dir) and os.listdir(final_ts_guess_dir):
+                output_subdir = os.path.join(output_dir, f'final_outputs_{reaction_dir}')
+                
+                # Check if the destination directory already exists
+                if not os.path.exists(output_subdir):
+                    shutil.copytree(final_ts_guess_dir, output_subdir)
+                    
+                    # Copy reactants and products geometry files
+                    shutil.copy(os.path.join(work_dir, reaction_dir, 'rp_geometries', 'reactants_geometry.xyz'), output_subdir)
+                    shutil.copy(os.path.join(work_dir, reaction_dir, 'rp_geometries', 'products_geometry.xyz'), output_subdir)
+        except Exception as e:
+            print(f"Error copying final outputs for {reaction_dir}: {e}")
             continue
 
 
 def remove_files_in_directory(directory):
+    """
+    Remove all files in a directory, keeping the directory structure intact.
+
+    Parameters:
+    - directory (str): Path to the directory.
+
+    Returns:
+    None
+    """
     try:
-        # List all items in the directory
-        items = os.listdir(directory)
+        # Check if the directory exists
+        if os.path.exists(directory):
+            # List all items in the directory
+            items = os.listdir(directory)
 
-        # Iterate over each item and remove only files
-        for item_name in items:
-            item_path = os.path.join(directory, item_name)
+            # Iterate over each item and remove only files
+            for item_name in items:
+                item_path = os.path.join(directory, item_name)
 
-            if os.path.isfile(item_path):
-                os.remove(item_path)
-            elif os.path.isdir(item_path):
-                continue
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+                elif os.path.isdir(item_path):
+                    continue
+        else:
+            print(f"Directory not found: {directory}")
 
     except Exception as e:
         print(f"Error during file removal: {e}")
 
 
 def get_reaction_list(filename):
-    ''' a function that opens a file, reads in every line as a reaction smiles and returns them as a list. '''
-    with open(filename, 'r') as f:
-        lines = f.readlines()
-        reaction_list = [line.rstrip().split() for line in lines]
-    return reaction_list
+    """
+    Read reaction SMILES from a file and return them as a list.
 
+    Parameters:
+    - filename (str): Path to the file containing reaction SMILES.
+
+    Returns:
+    list: List of reaction SMILES.
+    """
+    try:
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+            reaction_list = [line.rstrip().split() for line in lines]
+        return reaction_list
+    except Exception as e:
+        print(f"Error reading reaction list from file {filename}: {e}")
+        return []
 
 def setup_dir(target_dir):
-    if target_dir in os.listdir():
-        shutil.rmtree(target_dir)
-    os.mkdir(target_dir)
+    """
+    Create or clear a directory.
+
+    Parameters:
+    - target_dir (str): Path to the directory.
+
+    Returns:
+    None
+    """
+    try:
+        # Check if the directory exists
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir)
+        os.makedirs(target_dir)
+    except Exception as e:
+        print(f"Error setting up directory {target_dir}: {e}")
 
 
 def print_statistics(successful_reactions, start_time):
+    """
+    Print statistics including the number of successful reactions and the time taken.
+
+    Parameters:
+    - successful_reactions (list): List of successful reactions.
+    - start_time (float): Start time of the process.
+
+    Returns:
+    None
+    """
     end_time = time.time()
-    print(f'Successful reactions: {successful_reactions}')
-    print(f'Number of successful reactions: {len(successful_reactions)}')
-    print(f'Time taken: {end_time - start_time}')
+    num_successful_reactions = len(successful_reactions)
+
+    print(f'Successful reactions: {num_successful_reactions}')
+    print(f'Number of successful reactions: {num_successful_reactions}')
+
+    # Format time taken into hours, minutes, and seconds
+    elapsed_time = end_time - start_time
+    hours, remainder = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    print(f'Time taken: {int(hours)} hours, {int(minutes)} minutes, {int(seconds)} seconds')
 
 
 if __name__ == '__main__':
