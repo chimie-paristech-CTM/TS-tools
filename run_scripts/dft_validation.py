@@ -41,11 +41,15 @@ def validate_individual_ts(validation_args):
     ts_optimizer, input_dir_path = validation_args
     guess_dir_path = os.path.join(input_dir_path, f'final_outputs_reaction_{ts_optimizer.rxn_id}')
     ts_optimizer.path_dir = guess_dir_path
+    ts_optimizer.final_guess_dir = ts_optimizer.reaction_dir
 
     for file in os.listdir(guess_dir_path):
         if 'ts_guess' in file and file.endswith('.xyz'):
             ts_guess_file = os.path.join(guess_dir_path, file)
-            break
+        elif file == 'reactants_geometry.xyz':
+            shutil.copy(os.path.join(guess_dir_path, file), ts_optimizer.rp_geometries_dir)
+        elif file == 'products_geometry.xyz':
+            shutil.copy(os.path.join(guess_dir_path, file), ts_optimizer.rp_geometries_dir)
 
     if ts_guess_file is not None:
         ts_optimizer.modify_ts_guess_list([ts_guess_file])
@@ -56,10 +60,10 @@ def validate_individual_ts(validation_args):
             pass
     
     if ts_validated:
-        for file in os.listdir(ts_optimizer.g16_dir):
-            if 'reverse' not in file and 'forward' not in file:
-                if file.endswith('.xyz') or file.endswith('.log'):
-                    shutil.copy(file, ts_optimizer.reaction_dir)
+        #for file in os.listdir(ts_optimizer.g16_dir):
+        #    if 'reverse' not in file and 'forward' not in file:
+        #        if file.endswith('.xyz') or file.endswith('.log'):
+        #            shutil.copy(file, ts_optimizer.reaction_dir)
         return ts_optimizer.rxn_id
     
     return False

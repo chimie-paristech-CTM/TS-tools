@@ -44,13 +44,14 @@ class TSOptimizer:
         self.reaction_dir = self.make_work_dir()
 
         self.g16_dir = self.make_sub_dir(sub_dir_name='g16_dir')
+        self.rp_geometries_dir = self.make_sub_dir(sub_dir_name='rp_geometries')
         if not guess_found:
             self.path_dir = self.make_sub_dir(sub_dir_name='path_dir')
             self.ts_guesses_dir = self.make_sub_dir(sub_dir_name='preliminary_ts_guesses')
-            self.rp_geometries_dir = self.make_sub_dir(sub_dir_name='rp_geometries')
             self.final_guess_dir = self.make_sub_dir(sub_dir_name='final_ts_guess')
         else:
             self.path_dir = None
+            self.final_guess_dir = None
 
         self.ts_guess_list = None
 
