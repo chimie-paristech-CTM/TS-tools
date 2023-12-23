@@ -12,21 +12,8 @@ xtb = ade.methods.XTB()
 
 def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=None):
     """
-    Validate the transition state (TS) guess file based on frequency and displacement information.
-
-    Parameters:
-    - ts_guess_file (str): Path to the TS guess file.
-    - path (str): Path to the relevant data.
-    - freq_cut_off (int, optional): Frequency cutoff for validation. Defaults to 150.
-    - charge (int, optional): Charge of the system. Defaults to 0.
-    - solvent (str, optional): Solvent information. Defaults to None.
-
-    Returns:
-    - Tuple[str, int] or Tuple[None, None]: If the TS guess is valid, returns the TS guess file
-      and its frequency; otherwise, returns None for both.
-
     """
-    # get all information about the main imaginary mode
+    # get all information about main imaginary mode
     freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, solvent)
 
     if freq < -freq_cut_off and main_displacement_is_active:
@@ -37,18 +24,31 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=N
 
 def extract_info_ts_file(ts_file, path, charge, solvent):
     """
-    Extract information from a transition state (TS) file.
+    Extract information related to a transition state (TS) from a directory.
 
-    Parameters:
-    - ts_file (str): Path to the TS file.
-    - path (str): Path to the relevant data.
-    - charge (int): Charge of the system.
-    - solvent (str): Solvent information.
+    Args:
+        ts_file (str): The directory containing TS files.
+        path (str): The path containing the reactant and product xyz-files.
+        charge (int): The charge of the system.
+        cut_off (float, optional): A cutoff value to filter bond displacements. Defaults to 0.5.
 
     Returns:
-    Tuple[int, bool]: A tuple containing the frequency and a boolean indicating
-    whether the main displacement corresponds to an active bond.
+        tuple: A tuple containing the following information:
+            - float: Frequency of the TS.
+            - dict: Active bonds involved in the imaginary mode, with bond indices as keys and displacement values as values.
+            - dict: Extra bonds involved in the imaginary mode, with bond indices as keys and displacement values as values.
+            - set: Active bonds forming during the TS.
+            - set: Active bonds breaking during the TS.
+            - numpy.ndarray: Distance matrix for reactant molecules.
+            - numpy.ndarray: Distance matrix for product molecules.
+            - numpy.ndarray: Distance matrix for the TS geometry.
 
+    This function analyzes the provided TS directory to determine if it represents an imaginary mode and extracts various relevant information, 
+    including bond displacements, active bonds forming and breaking, and distance matrices for the reactants, products, and TS geometry.
+
+    Note:
+    - The bond displacement cutoff (cut_off) is used to filter small bond displacements. 
+        Bonds with displacements below this threshold are ignored.
     """
     # Obtain reactant, product, and transition state molecules
     reactant_file, product_file = get_xyzs(path)
@@ -78,13 +78,15 @@ def extract_info_ts_file(ts_file, path, charge, solvent):
     # Check if main bond displacement in mode corresponds to active bond
     displacement_dict = {}
     for bond in all_bonds:
-        displacement_dict[bond] = abs(delta_mode[bond[0], bond[1]])
+        displacement_dict[bond] = abs(delta_mode[bond[0],bond[1]])
 
     max_displacement_bond = max(displacement_dict, key=displacement_dict.get)
 
-    # Determine if the main displacement corresponds to an active bond
-    main_displacement_is_active = max_displacement_bond in active_bonds
-
+    if max_displacement_bond in active_bonds:
+        main_displacement_is_active = True
+    else:
+        main_displacement_is_active = False
+    
     return freq, main_displacement_is_active
 
 
