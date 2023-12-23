@@ -12,6 +12,18 @@ xtb = ade.methods.XTB()
 
 def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=None):
     """
+    Validate the transition state (TS) guess file based on frequency and displacement information.
+
+    Parameters:
+    - ts_guess_file (str): Path to the TS guess file.
+    - path (str): Path to the relevant data.
+    - freq_cut_off (int, optional): Frequency cutoff for validation. Defaults to 150.
+    - charge (int, optional): Charge of the system. Defaults to 0.
+    - solvent (str, optional): Solvent information. Defaults to None.
+
+    Returns:
+    - Tuple[str, int] or Tuple[None, None]: If the TS guess is valid, returns the TS guess file
+      and its frequency; otherwise, returns None for both.
     """
     # get all information about main imaginary mode
     freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, solvent)

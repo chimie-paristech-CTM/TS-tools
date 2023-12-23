@@ -66,6 +66,15 @@ def write_xyz_file_from_ade_atoms(atoms, filename):
 
 
 def write_final_geometry_to_xyz(log_file_path):
+    """
+    Extract and write the final geometry from a Gaussian log file to an XYZ file.
+
+    Parameters:
+    - log_file_path (str): Path to the Gaussian log file.
+
+    Returns:
+    str: Path to the generated XYZ file.
+    """
     final_geometry = []
     reading_geometry = False
     after_transition_state_opt = False
@@ -115,6 +124,15 @@ def write_final_geometry_to_xyz(log_file_path):
 
 
 def run_g16_ts_optimization(file_path):
+    """
+    Run Gaussian 16 for transition state optimization.
+
+    Parameters:
+    - file_path (str): Path to the Gaussian input file.
+
+    Returns:
+    str: Path to the Gaussian log file.
+    """
     # Run Gaussian 16 using nohup and redirect stderr to /dev/null
     log_file = os.path.splitext(file_path)[0] + ".log"
     out_file = os.path.splitext(file_path)[0] + ".out"
@@ -129,7 +147,17 @@ def run_g16_ts_optimization(file_path):
     
     return log_file
 
+
 def run_irc(input_file):
+    """
+    Run IRC (Intrinsic Reaction Coordinate) calculation using Gaussian 16.
+
+    Parameters:
+    - input_file (str): Path to the Gaussian input file.
+
+    Returns:
+    None
+    """
     out_file = f'{input_file[:-4]}.out'
     log_file = f'{input_file[:-4]}.log'
 
@@ -141,7 +169,18 @@ def run_irc(input_file):
             stderr=subprocess.DEVNULL,
         )
 
+
 def copy_final_outputs(work_dir, output_dir):
+    """
+    Copy final outputs from a working directory to an output directory.
+
+    Parameters:
+    - work_dir (str): Path to the working directory.
+    - output_dir (str): Path to the output directory.
+
+    Returns:
+    None
+    """
     os.makedirs(output_dir, exist_ok=True)
     for reaction_dir in os.listdir(work_dir):
         try:
@@ -157,6 +196,15 @@ def copy_final_outputs(work_dir, output_dir):
 
 
 def remove_files_in_directory(directory):
+    """
+    Remove all files in a directory, keeping the directory structure intact.
+
+    Parameters:
+    - directory (str): Path to the directory.
+
+    Returns:
+    None
+    """
     try:
         # List all items in the directory
         items = os.listdir(directory)
@@ -183,12 +231,31 @@ def get_reaction_list(filename):
 
 
 def setup_dir(target_dir):
+    """
+    Read reaction SMILES from a file and return them as a list.
+
+    Parameters:
+    - filename (str): Path to the file containing reaction SMILES.
+
+    Returns:
+    list: List of reaction SMILES.
+    """
     if target_dir in os.listdir():
         shutil.rmtree(target_dir)
     os.mkdir(target_dir)
 
 
 def print_statistics(successful_reactions, start_time):
+    """
+    Print statistics including the number of successful reactions and the time taken.
+
+    Parameters:
+    - successful_reactions (list): List of successful reactions.
+    - start_time (float): Start time of the process.
+
+    Returns:
+    None
+    """
     end_time = time.time()
     print(f'Successful reactions: {successful_reactions}')
     print(f'Number of successful reactions: {len(successful_reactions)}')
