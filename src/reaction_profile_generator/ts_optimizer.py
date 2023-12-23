@@ -314,7 +314,7 @@ class TSOptimizer:
             return reaction_correct
 
         except Exception as e:
-            print(e)
+            #print(e)
             return False
 
     def reaction_is_intramolecular(self):
