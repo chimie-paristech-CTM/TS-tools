@@ -21,8 +21,47 @@ xtb = ade.methods.XTB()
 
 
 class PathGenerator:
+    # Constants
+    MIN_FC_LOWER_BOUND = 0.009
+    MIN_FC_UPPER_BOUND = 0.005
+    FC_INCREMENT = 0.001
+    MAX_FORCE_CONSTANT = 0.1
+    POTENTIAL_THRESHOLD = 0.005
+
+    FC_CRUDE_LOWER_BOUND = 0.1
+    FC_CRUDE_UPPER_BOUND = 4.0
+    FC_CRUDE_INCREMENT = 0.1
+    FC_CRUDE_ATTEMTPS = 5
+
+    FC_REFINED_LOWER_BOUND = 0.09
+    FC_REFINED_UPPER_BOUND = 0.03
+    FC_REFINED_INCREMENT = 0.01
+    FC_REFINED_ATTEMPTS = 2
+
+    STRETCH_FACTOR_LOWER_BOUND = 1.0
+    STRETCH_FACTOR_UPPER_BOUND = 1.2
+
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
                  solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100):
+        """
+        Initialize a PathGenerator object.
+
+        Parameters:
+        - reactant_smiles (str): SMILES representation of the reactant.
+        - product_smiles (str): SMILES representation of the product.
+        - rxn_id (str): Identifier for the reaction.
+        - path_dir (str): Path to the directory for storing generated paths.
+        - rp_geometries_dir (str): Path to the directory containing reactant and product geometries.
+        - solvent (str, optional): Solvent information.
+        - reactive_complex_factor (float, optional): Reactive complex factor.
+        - freq_cut_off (int, optional): Frequency cutoff.
+        - charge (int, optional): Molecular charge.
+        - multiplicity (int, optional): Molecular multiplicity.
+        - n_conf (int, optional): Number of conformers.
+
+        Returns:
+        None
+        """
         self.reactant_smiles = reactant_smiles
         self.product_smiles = product_smiles
         self.rxn_id = rxn_id
@@ -55,42 +94,87 @@ class PathGenerator:
             self.minimal_fc = self.determine_minimal_fc()
 
     def get_path(self):
+        """
+        Attempt to generate a reaction path.
+
+        Returns:
+        Tuple or None: A tuple containing energies, potentials, and path XYZ files if successful,
+                       or None if no valid path is found.
+        """
         path_xyz_files = None
+
         if self.minimal_fc is not None:
-            # overstretch range a bit because otherwise you may end up aborting the search prematurely
-            for fc in np.arange(self.minimal_fc - 0.009, self.minimal_fc + 0.005, 0.001):
-                reactive_complex_xyz_file = self.get_reactive_complex(min(fc, 0.1)) # you don't need very strong force constants to constrain non-covalently bounded reactants
+            # Overstretch range a bit because otherwise, you may end up aborting the search prematurely
+            for fc in np.arange(self.minimal_fc - PathGenerator.MIN_FC_LOWER_BOUND,
+                                self.minimal_fc + PathGenerator.MIN_FC_UPPER_BOUND,
+                                PathGenerator.FC_INCREMENT):
+                reactive_complex_xyz_file = self.get_reactive_complex(min(fc, PathGenerator.MAX_FORCE_CONSTANT))
                 energies, coords, atoms, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
-                if potentials[-1] > min(fc, 0.005):
-                    continue  # Means that you haven't reached the products at the end of the biased optimization
+
+                # Check conditions for a valid path
+                if potentials[-1] > min(fc, PathGenerator.POTENTIAL_THRESHOLD):
+                    continue  # Haven't reached the products at the end of the biased optimization
                 else:
                     if not (self.endpoint_is_product(atoms, coords) and self.beginpoint_is_reactant(atoms, coords)):
-                        # update the stereo correct conformer if failure 
+                        # Update the stereo-correct conformer if failure
                         print(f'Incorrect product formed for {self.rxn_id}')
                         return None, None, None
                     else:
-                        path_xyz_files = get_path_xyz_files(atoms, coords, fc) 
+                        path_xyz_files = get_path_xyz_files(atoms, coords, fc)
                         self.save_rp_geometries(atoms, coords)
                         return energies, potentials, path_xyz_files
-                
+
         return None, None, None
 
     def determine_minimal_fc(self):
-        minimal_fc_crude = self.screen_fc_range(0.1, 4.0, 0.1, 5)
+        """
+        Determine the minimal force constant for the reaction path.
+
+        Returns:
+        float or None: The refined minimal force constant, or None if not found.
+        """
+        minimal_fc_crude = self.screen_fc_range(
+            PathGenerator.FC_CRUDE_LOWER_BOUND,
+            PathGenerator.FC_CRUDE_UPPER_BOUND,
+            PathGenerator.FC_CRUDE_INCREMENT,
+            n_attempts=PathGenerator.FC_CRUDE_ATTEMTPS
+        )
+
         if minimal_fc_crude is not None:
-            # overstretch range a bit because otherwise you may end up aborting the search prematurely
-            minimal_fc_refined = self.screen_fc_range(minimal_fc_crude - 0.09, minimal_fc_crude + 0.03, 0.01,2)
-        
-        return minimal_fc_refined
+            # Overstretch range a bit because otherwise you may end up aborting the search prematurely
+            minimal_fc_refined = self.screen_fc_range(
+                minimal_fc_crude - PathGenerator.FC_REFINED_LOWER_BOUND,
+                minimal_fc_crude + PathGenerator.FC_REFINED_UPPER_BOUND,
+                PathGenerator.FC_REFINED_INCREMENT,
+                n_attempts= PathGenerator.FC_REFINED_ATTEMPTS  # Only one retry for the refined range
+            )
+
+            return minimal_fc_refined
+
+        return None
     
     def screen_fc_range(self, start, end, interval, n_attempts):
+        """
+        Screen a force constant range to find a suitable force constant.
+
+        Parameters:
+        - start (float): Starting value of the force constant range.
+        - end (float): Ending value of the force constant range.
+        - interval (float): Interval between force constant values.
+        - n_attempts (int): Number of attempts to find a suitable force constant.
+
+        Returns:
+        float or None: The found force constant or None if not found.
+        """
         if n_attempts > 2:
             self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(self.n_conf)
+
         for fc in np.arange(start, end, interval):
             for _ in range(n_attempts):
-                reactive_complex_xyz_file = self.get_reactive_complex(min(fc, 0.1))
+                reactive_complex_xyz_file = self.get_reactive_complex(min(fc, PathGenerator.MAX_FORCE_CONSTANT))
                 _, _, _, potentials = self.get_path_for_biased_optimization(reactive_complex_xyz_file, fc)
-                if potentials[-1] < 0.005:
+
+                if potentials[-1] < PathGenerator.POTENTIAL_THRESHOLD:
                     return fc
                 else:
                     continue
@@ -98,13 +182,35 @@ class PathGenerator:
         return None
     
     def get_formation_constraints_stretched(self):
+        """
+        Get stretched formation constraints for bonds that are to be stretched.
+
+        Returns:
+        dict: Dictionary of stretched formation constraints.
+        """
         formation_constraints_to_stretch = self.get_bonds_to_stretch()
-        formation_constraints_stretched = {x: random.uniform(self.reactive_complex_factor, 1.2 * self.reactive_complex_factor) * y 
-                                       for x,y in self.formation_constraints.items() if x in formation_constraints_to_stretch}
+        formation_constraints_stretched = {}
+
+        for bond, original_distance in self.formation_constraints.items():
+            if bond in formation_constraints_to_stretch:
+                stretch_factor = random.uniform(
+                    PathGenerator.STRETCH_FACTOR_LOWER_BOUND * self.reactive_complex_factor,
+                    PathGenerator.STRETCH_FACTOR_UPPER_BOUND * self.reactive_complex_factor
+                )
+                formation_constraints_stretched[bond] = stretch_factor * original_distance
 
         return formation_constraints_stretched
     
     def get_stereo_correct_conformer_name(self, n_conf=100):
+        """
+        Get the name of a stereochemistry-correct conformer.
+
+        Parameters:
+        - n_conf (int): Number of conformers to generate.
+
+        Returns:
+        str or None: The name of the conformer or None if not found.
+        """
         formation_constraints_stretched = self.get_formation_constraints_stretched()
         get_conformer(self.reactant_rdkit_mol)
     
@@ -145,6 +251,15 @@ class PathGenerator:
         return conformer.name
 
     def get_reactive_complex(self, fc):
+        """
+        Get the optimized reactive complex.
+
+        Parameters:
+        - force_constant (float): The force constant for the optimization.
+
+        Returns:
+        str: Path to the optimized reactive complex XYZ file.
+        """
         formation_constraints_stretched = self.get_formation_constraints_stretched()
 
         ade_mol_optimized = ade.Molecule(f'{self.stereo_correct_conformer_name}.xyz', solvent_name=self.solvent, charge=self.charge)
@@ -152,14 +267,25 @@ class PathGenerator:
         ade_mol_optimized.constraints.update(formation_constraints_stretched)
 
         xtb.force_constant = fc
+
         ade_mol_optimized.optimise(method=xtb)
 
         write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'{self.stereo_correct_conformer_name}_opt.xyz')
 
-        return os.path.join(f'{self.stereo_correct_conformer_name}_opt.xyz')
+        return f'{self.stereo_correct_conformer_name}_opt.xyz'
 
-    def get_path_for_biased_optimization(self, reactive_complex_xyz_file, fc):
-        log_file = self.xtb_optimize_with_applied_potentials(reactive_complex_xyz_file, fc)
+    def get_path_for_biased_optimization(self, reactive_complex_xyz_file, force_constant):
+        """
+        Perform biased optimization and retrieve valid path information.
+
+        Parameters:
+        - reactive_complex_xyz_file (str): Path to the reactive complex XYZ file.
+        - force_constant (float): The force constant for the optimization.
+
+        Returns:
+        Tuple: Tuple containing valid energies, coordinates, atoms, and potentials.
+        """
+        log_file = self.xtb_optimize_with_applied_potentials(reactive_complex_xyz_file, force_constant)
         all_energies, all_coords, all_atoms = read_energy_coords_file(log_file)
 
         valid_energies, valid_coords, valid_atoms = [], [], []
@@ -168,11 +294,21 @@ class PathGenerator:
             valid_atoms.append(all_atoms[i])
             valid_energies.append(all_energies[i])
 
-        potentials = determine_potential(valid_coords, self.formation_constraints, fc)
+        potentials = determine_potential(valid_coords, self.formation_constraints, force_constant)
 
         return valid_energies, valid_coords, valid_atoms, potentials
 
     def xtb_optimize_with_applied_potentials(self, reactive_complex_xyz_file, fc):
+        """
+        Perform XTB optimization with applied potentials.
+
+        Parameters:
+        - reactive_complex_xyz_file (str): Path to the reactive complex XYZ file.
+        - force_constant (float): The force constant for the applied potentials.
+
+        Returns:
+        str: Path to the XTB optimization log file.
+        """
         xtb_input_path = f'{os.path.splitext(reactive_complex_xyz_file)[0]}.inp'
 
         with open(xtb_input_path, 'w') as f:
@@ -189,28 +325,48 @@ class PathGenerator:
         if self.multiplicity != 1:
             cmd += f'--uhf {self.multiplicity - 1} '
 
-        with open(os.path.splitext(reactive_complex_xyz_file)[0] + '_path.out', 'w') as out:
-            process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
-            process.wait()
+        try:
+            with open(f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.out', 'w') as out:
+                process = subprocess.Popen(cmd.split(), stderr=subprocess.DEVNULL, stdout=out)
+                process.wait()
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f'Error during XTB optimization: {e}')
 
         os.rename('xtbopt.log', f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.log')
 
         return f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.log'     
 
     def get_bonds_to_stretch(self):
-        formation_bonds_to_stretch = set()
+        """
+        Get the set of bonds to be stretched based on formation constraints.
+
+        Returns:
+        set: Set of bonds to be stretched.
+        """
+        bonds_to_stretch = set()
 
         for bond in self.formation_constraints.keys():
-            if self.owning_dict_rsmiles[self.atom_idx_dict[bond[0]]] != self.owning_dict_rsmiles[self.atom_idx_dict[bond[1]]]:
-                formation_bonds_to_stretch.add(bond)
+            atom_1, atom_2 = bond
+            owner_1 = self.owning_dict_rsmiles[self.atom_idx_dict[atom_1]]
+            owner_2 = self.owning_dict_rsmiles[self.atom_idx_dict[atom_2]]
 
-        if len(formation_bonds_to_stretch) == 0:
-            for bond in self.formation_constraints.keys():
-                formation_bonds_to_stretch.add(bond) 
+            if owner_1 != owner_2:
+                bonds_to_stretch.add(bond)
 
-        return formation_bonds_to_stretch
+        # If no intermolecular bonds found, consider all bonds
+        if not bonds_to_stretch:
+            bonds_to_stretch = set(self.formation_constraints.keys())
+
+        return bonds_to_stretch
 
     def get_active_bonds_from_mols(self):
+        """
+        Identify formed and broken bonds between reactant and product molecules.
+
+        Returns:
+        set: Formed bonds in the product.
+        set: Broken bonds in the reactant.
+        """
         reactant_bonds = get_bonds(self.reactant_rdkit_mol)
         product_bonds = get_bonds(self.product_rdkit_mol)
 
@@ -220,24 +376,31 @@ class PathGenerator:
         return formed_bonds, broken_bonds
     
     def get_optimal_distances(self):
+        """
+        Calculate optimal distances for formed bonds in the product.
+
+        Returns:
+        dict: Dictionary of optimal distances for formed bonds.
+        """
         optimal_distances = {}
-        mols = [Chem.MolFromSmiles(smi, ps) for smi in self.product_smiles.split('.')]
-        bonds = self.formed_bonds
+        product_molecules = [Chem.MolFromSmiles(smi, ps) for smi in self.product_smiles.split('.')]
+        formed_bonds = self.formed_bonds
         owning_mol_dict = self.owning_dict_psmiles
 
-        for bond in bonds:
-            i = int(bond[0])
-            j = int(bond[1])
-            idx1, idx2 = self.atom_map_dict[i], self.atom_map_dict[j]
-            if owning_mol_dict[i] == owning_mol_dict[j]:
-                mol = copy.deepcopy(mols[owning_mol_dict[i]])
+        for bond in formed_bonds:
+            atom_i = int(bond[0])
+            atom_j = int(bond[1])
+            idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
+
+            if owning_mol_dict[atom_i] == owning_mol_dict[atom_j]:
+                mol = copy.deepcopy(product_molecules[owning_mol_dict[atom_i]])
             else:
-                raise KeyError
-    
+                raise KeyError("Atoms in the bond belong to different molecules.")
+
             mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol.GetAtoms()}
             [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
 
-            # detour needed to avoid reordering of the atoms by autodE
+            # Detour needed to avoid reordering of the atoms by autodE
             get_conformer(mol)
             write_xyz_file_from_mol(mol, 'tmp.xyz')
 
@@ -252,45 +415,79 @@ class PathGenerator:
 
             ade_mol.conformers[0].optimise(method=xtb)
             dist_matrix = distance_matrix(ade_mol.coordinates, ade_mol.coordinates)
-            current_bond_length = dist_matrix[mol_dict[i], mol_dict[j]]
+            current_bond_length = dist_matrix[mol_dict[atom_i], mol_dict[atom_j]]
 
             optimal_distances[idx1, idx2] = current_bond_length
-    
+
         return optimal_distances
     
-    def save_rp_geometries(self, atoms, coords):    
-        write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'))
-        write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'))
+    def save_rp_geometries(self, final_atoms, final_coords):
+        """
+        Save reactant and product geometries to XYZ files.
 
-    def beginpoint_is_reactant(self, atoms, coords):
-        reactant_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2])) 
-                         for atom1,atom2 in get_bonds(self.reactant_rdkit_mol)]
-        write_xyz_file_from_atoms_and_coords(atoms[0], coords[0], 'reactant_geometry.xyz')
+        Parameters:
+        final_atoms (list): List of atoms for reactant and product.
+        final_coords (list): List of coordinates for reactant and product.
+        """
+        reactant_xyz_path = os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz')
+        product_xyz_path = os.path.join(self.rp_geometries_dir, 'products_geometry.xyz')
+
+        write_xyz_file_from_atoms_and_coords(final_atoms[0], final_coords[0], reactant_xyz_path)
+        write_xyz_file_from_atoms_and_coords(final_atoms[-1], final_coords[-1], product_xyz_path)
+
+    def beginpoint_is_reactant(self, final_atoms, final_coords):
+        """
+        Check if the final geometry corresponds to the reactant.
+
+        Parameters:
+        final_atoms (list): List of atoms for the final geometry.
+        final_coords (list): List of coordinates for the final geometry.
+
+        Returns:
+        bool: True if the final geometry corresponds to the reactant, False otherwise.
+        """
+        reactant_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2]))
+                      for atom1, atom2 in get_bonds(self.reactant_rdkit_mol)]
+        write_xyz_file_from_atoms_and_coords(final_atoms[0], final_coords[0], 'reactant_geometry.xyz')
         ade_mol_r = ade.Molecule('reactant_geometry.xyz', name='reactant_geometry', charge=self.charge)
 
-        if set(ade_mol_r.graph.edges) == set(reactant_bonds):
-            return True
-        else:
-            return False
+        return set(ade_mol_r.graph.edges) == set(reactant_bonds)
 
-    def endpoint_is_product(self, atoms, coords):
-        product_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2])) 
-                         for atom1,atom2 in get_bonds(self.product_rdkit_mol)]
-        write_xyz_file_from_atoms_and_coords(atoms[-1], coords[-1], 'products_geometry.xyz')
+    def endpoint_is_product(self, final_atoms, final_coords):
+        """
+        Check if the final geometry corresponds to the product.
+
+        Parameters:
+        final_atoms (list): List of atoms for the final geometry.
+        final_coords (list): List of coordinates for the final geometry.
+
+        Returns:
+        bool: True if the final geometry corresponds to the product, False otherwise.
+        """
+        product_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2]))
+                     for atom1, atom2 in get_bonds(self.product_rdkit_mol)]
+        write_xyz_file_from_atoms_and_coords(final_atoms[-1], final_coords[-1], 'products_geometry.xyz')
         ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge)
 
-        if set(ade_mol_p.graph.edges) == set(product_bonds):
-            return True
-        else:
-            return False
+        return set(ade_mol_p.graph.edges) == set(product_bonds)
     
 
-def get_owning_mol_dict(smiles):
-    mols = [Chem.MolFromSmiles(smi, ps) for smi in smiles.split('.')]
+def get_owning_mol_dict(reaction_smiles):
+    """
+    Create a dictionary mapping atom map numbers to the index of the molecule to which they belong.
+
+    Parameters:
+    reaction_smiles (str): Reaction SMILES string.
+
+    Returns:
+    dict: A dictionary where keys are atom map numbers and values are the corresponding molecule indices.
+    """
+    reactant_molecules = [Chem.MolFromSmiles(smi, ps) for smi in reaction_smiles.split('.')]
     owning_mol_dict = {}
-    for idx, mol in enumerate(mols):
+
+    for mol_index, mol in enumerate(reactant_molecules):
         for atom in mol.GetAtoms():
-            owning_mol_dict[atom.GetAtomMapNum()] = idx
+            owning_mol_dict[atom.GetAtomMapNum()] = mol_index
 
     return owning_mol_dict
 
@@ -445,7 +642,15 @@ def angstrom_to_bohr(distance_angstrom):
 
 def get_path_xyz_files(atoms, coords, force_constant):
     """
-    
+    Save a series of XYZ files representing the path along a reaction coordinate.
+
+    Parameters:
+    atoms (list): List of atom objects for each step in the path.
+    coords (list): List of coordinate arrays for each step in the path.
+    force_constant (float): The force constant applied to the path.
+
+    Returns:
+    list: List of filenames for the saved XYZ files.
     """
     path_xyz_files = []
     folder_name = f'path_xyzs_{force_constant:.4f}'
@@ -486,6 +691,19 @@ def write_xyz_file_from_atoms_and_coords(atoms, coords, filename):
 
 
 def find_stereocenters(mol):
+    """
+    Identify stereocenters (chirality and cis/trans bonds) in a molecule.
+
+    Parameters:
+    mol (Chem.Mol): RDKit molecule object.
+
+    Returns:
+    list: List of dictionaries representing stereocenters.
+        Each dictionary contains keys:
+        - 'type': Either 'chirality' or 'cis/trans'.
+        - 'position': Atom map numbers or bond indices associated with the stereocenter.
+        - 'descriptor': Chirality descriptor or cis/trans bond stereochemistry.
+    """
     stereocenters = []
 
     # Find chiral centers
@@ -503,7 +721,7 @@ def find_stereocenters(mol):
         if bond.GetStereo() > 0:
             stereocenter = {
                 'type': 'cis/trans',
-                'position': set([bond.GetBeginAtom().GetAtomMapNum(), bond.GetEndAtom().GetAtomMapNum()]),
+                'position': {bond.GetBeginAtom().GetAtomMapNum(), bond.GetEndAtom().GetAtomMapNum()},
                 'descriptor': bond.GetStereo()
             }
             stereocenters.append(stereocenter)
