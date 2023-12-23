@@ -27,6 +27,14 @@ atomic_number_to_symbol = {
 
 
 def extract_irc_geometries(log_path_forward, log_path_reverse):
+    """
+    Extract IRC (Intrinsic Reaction Coordinate) geometries from forward and reverse log files,
+    and write them to XYZ files.
+
+    Parameters:
+    - log_path_forward (str): Path to the forward IRC log file.
+    - log_path_reverse (str): Path to the reverse IRC log file.
+    """
     geometry_block_forward = extract_geometry_block_from_irc(log_path_forward)
     geometry_block_reverse = extract_geometry_block_from_irc(log_path_reverse)
 
@@ -35,6 +43,15 @@ def extract_irc_geometries(log_path_forward, log_path_reverse):
 
 
 def extract_geometry_block_from_irc(log_path):
+    """
+    Extract the geometry block from an IRC (Intrinsic Reaction Coordinate) log file.
+
+    Parameters:
+    - log_path (str): Path to the IRC log file.
+
+    Returns:
+    List[str]: List of lines containing the geometry block.
+    """
     geometry_start_pattern = re.compile(r'^\s*Cartesian Coordinates \(Ang\):\s*$')
     geometry_end_pattern = re.compile(r'^\s*CHANGE IN THE REACTION COORDINATE =\s*([+-]?\d*\.\d+)\s*$')
     with open(log_path, 'r') as log_file:
@@ -50,6 +67,14 @@ def extract_geometry_block_from_irc(log_path):
 
 
 def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
+    """
+    Write a geometry block to an XYZ file.
+
+    Parameters:
+    - geometry_block (List[str]): List of lines containing the geometry block.
+    - output_xyz_path (str): Path to the output XYZ file.
+    - irc (bool): Indicates whether the geometry block is from an IRC log. Defaults to False.
+    """
     with open(output_xyz_path, 'w') as xyz_file:
         # Write the number of atoms
         xyz_file.write(str(len(geometry_block)) + '\n\n')
@@ -63,6 +88,13 @@ def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
     
 
 def extract_transition_state_geometry(log_path, output_xyz_path):
+    """
+    Extract the geometry of a transition state from a Gaussian16 log file and save it to an XYZ file.
+
+    Parameters:
+    - log_path (str): Path to the Gaussian16 log file.
+    - output_xyz_path (str): Path to the output XYZ file.
+    """
     # Define regular expressions to identify relevant lines
     geometry_start_pattern = re.compile(r'^\s*Standard orientation:.*')
     geometry_end_pattern = re.compile(r'^\s*-+\s*$')
@@ -99,6 +131,17 @@ def extract_transition_state_geometry(log_path, output_xyz_path):
 
 
 def write_coordinates_to_xyz(coordinates, file_path):
+    """
+    Write atomic coordinates to an XYZ file.
+
+    Parameters:
+    - coordinates (list): A list of tuples representing atomic coordinates.
+        Each tuple should have the format (atom_symbol, x, y, z).
+    - file_path (str): The path to the output XYZ file.
+
+    Returns:
+    None
+    """
     with open(file_path, 'w') as xyz_file:
         # Write the number of atoms
         xyz_file.write(str(len(coordinates)) + '\n\n')
@@ -107,6 +150,15 @@ def write_coordinates_to_xyz(coordinates, file_path):
 
 
 def extract_coordinates(file_path):
+    """
+    Extract atomic coordinates from a file and write them to a new XYZ file.
+
+    Parameters:
+    - file_path (str): Path to the input file.
+
+    Returns:
+    None
+    """
     coordinates = []
 
     with open(file_path, 'r') as file:
@@ -130,6 +182,15 @@ def extract_coordinates(file_path):
 
 
 def write_xtb_input_file(xyz_path):
+    """
+    Write an XTB input file based on an XYZ file.
+
+    Parameters:
+    - xyz_path (str): Path to the XYZ file.
+
+    Returns:
+    str: Path to the created XTB input file.
+    """
     file_path = os.path.join(os.path.dirname(xyz_path), 'xtb.inp')
     input_block = """
     $wall
@@ -145,6 +206,18 @@ def write_xtb_input_file(xyz_path):
 
 
 def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
+    """
+    Optimize the final point of an Intrinsic Reaction Coordinate (IRC) using XTB.
+
+    Parameters:
+    - xyz_file (str): Path to the XYZ file containing the molecular coordinates.
+    - charge (int): Charge of the system.
+    - multiplicity (int): Spin multiplicity of the system (1 for singlet, 2 for doublet, etc.).
+    - solvent (str, optional): Solvent information. Defaults to None.
+
+    Returns:
+    None: The function writes the optimized coordinates to an output file.
+    """
     inp_path = write_xtb_input_file(xyz_file)
     with open(f'{xyz_file[:-4]}.out', 'w') as out:
         cmd = f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge} '
@@ -164,13 +237,42 @@ def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
 
 
 def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol):
+    """
+    Update molecular graphs for a set of molecules using a relative tolerance.
+
+    Parameters:
+    - rel_tolerance (float): Relative tolerance for updating molecular graphs.
+    - forward_mol (ade.Molecule): Forward molecule.
+    - reverse_mol (ade.Molecule): Reverse molecule.
+    - reactant_mol (ade.Molecule): Reactant molecule.
+    - product_mol (ade.Molecule): Product molecule.
+
+    Returns:
+    Tuple[ade.Molecule, ade.Molecule, ade.Molecule, ade.Molecule]: Updated forward, reverse, reactant, and product molecules.
+    """
     for mol in [forward_mol, reverse_mol, reactant_mol, product_mol]:
         make_graph(mol, rel_tolerance=rel_tolerance)
 
     return forward_mol, reverse_mol, reactant_mol, product_mol 
 
+
 #TODO: optimize in case of DFT???
 def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0, multiplicity=1, solvent=None):
+    """
+    Compare molecular graphs of IRC (Intrinsic Reaction Coordinate) molecules after optimization.
+
+    Parameters:
+    - forward_xyz (str): Path to the XYZ file for the forward IRC molecule.
+    - reverse_xyz (str): Path to the XYZ file for the reverse IRC molecule.
+    - reactant_xyz (str): Path to the XYZ file for the reactant molecule.
+    - product_xyz (str): Path to the XYZ file for the product molecule.
+    - charge (int, optional): Charge of the system. Defaults to 0.
+    - multiplicity (int, optional): Spin multiplicity of the system (1 for singlet, 2 for doublet, etc.). Defaults to 1.
+    - solvent (str, optional): Solvent information. Defaults to None.
+
+    Returns:
+    bool: True if the molecular graphs match for any relative tolerance, False otherwise.
+    """
     # first reoptimize the final points
     optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent)
     optimize_final_point_irc(reverse_xyz, charge, multiplicity, solvent)
@@ -194,6 +296,22 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
 
 def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LYP/6-31G**', 
                                 mem='2GB', proc=2, solvent=None, charge=0, multiplicity=1):
+    """
+    Generate Gaussian input files for IRC (Intrinsic Reaction Coordinate) calculations.
+
+    Parameters:
+    - xyz_file (str): Path to the XYZ file containing atomic coordinates.
+    - output_prefix (str, optional): Prefix for output files. Defaults to 'irc_calc'.
+    - method (str, optional): Gaussian method and basis set. Defaults to 'B3LYP/6-31G**'.
+    - mem (str, optional): Gaussian memory specification. Defaults to '2GB'.
+    - proc (int, optional): Number of processors. Defaults to 2.
+    - solvent (str, optional): Solvent information. Defaults to None.
+    - charge (int, optional): Charge of the system. Defaults to 0.
+    - multiplicity (int, optional): Spin multiplicity of the system. Defaults to 1.
+
+    Returns:
+    Tuple[str, str]: Paths to the forward and reverse Gaussian input files.
+    """
     # Read the XYZ file
     with open(xyz_file, 'r') as xyz:
         lines = xyz.readlines()
