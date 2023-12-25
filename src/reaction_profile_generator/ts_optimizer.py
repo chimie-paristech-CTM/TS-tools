@@ -103,7 +103,7 @@ class TSOptimizer:
         - reactive_complex_factor: Reactive complex factor value.
         """
         path = self.set_up_path_generator(reactive_complex_factor)
-        ts_guess_list = self.obtain_ts_guesses_for_given_reactive_complex_factor(path)
+        ts_guess_list = self.obtain_ts_guesses_for_given_reactive_complex_factor(path)[:5]
 
         if ts_guess_list is not None:
             self.save_ts_guesses(ts_guess_list)

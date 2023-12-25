@@ -51,7 +51,7 @@ def optimize_individual_ts(ts_optimizer):
 
     # Then search for TS by iterating through reactive complex factor values
     for reactive_complex_factor in reactive_complex_factor_values:
-        for _ in range(2):
+        for _ in range(3):
             try:
                 ts_optimizer.set_ts_guess_list(reactive_complex_factor)
                 ts_found = ts_optimizer.determine_ts() 
