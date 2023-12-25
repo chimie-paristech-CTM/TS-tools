@@ -369,3 +369,5 @@ if __name__ == '__main__':
     #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
     #print(reaction_correct)
     extract_transition_state_geometry('logs/ts_guess_0.log', 'logs/test.xyz')
+
+

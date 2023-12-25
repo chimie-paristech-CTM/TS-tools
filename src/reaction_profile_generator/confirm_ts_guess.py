@@ -278,3 +278,5 @@ def read_negative_frequencies(filename):
                 frequencies = line.strip().split()[2:]
                 negative_frequencies = [freq for freq in frequencies if float(freq) < 0]
                 return negative_frequencies
+
+
