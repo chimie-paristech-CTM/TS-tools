@@ -9,7 +9,8 @@ ps.removeHs = False
 
 
 def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', 
-                          extra_commands='opt=(calcfc,ts, noeigen) freq=noraman', charge=0, multiplicity=1):
+                          extra_commands='opt=(calcfc,ts, noeigen) freq=noraman', charge=0, 
+                          multiplicity=1, mem='2GB', proc=2):
     """
     Convert an XYZ file to Gaussian 16 input file format.
 
@@ -18,6 +19,8 @@ def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-3
         output_file (str): Path to the output Gaussian input file to be created.
         method (str, optional): The method to be used in the Gaussian calculation. Default is 'B3LYP'.
         basis_set (str, optional): The basis set to be used in the Gaussian calculation. Default is '6-31G(d)'.
+        mem (str, optional): Amount of memory to allocate for the calculations (default is '2GB').
+        proc (int, optional): Number of processor cores to use for the calculations (default is 2).
     """
     filename = xyz_file.split('/')[-1].split('.xyz')[0]
 
@@ -29,7 +32,7 @@ def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-3
         if 'external' in method:
             gaussian_input.write(f'%Chk={filename}.chk\n# {method} {extra_commands}')
         else:
-            gaussian_input.write(f'%Chk={filename}.chk\n%nproc=8\n%Mem=16GB\n# {method}/{basis_set} {extra_commands}')
+            gaussian_input.write(f'%Chk={filename}.chk\n%nproc={proc}\n%Mem={mem}\n# {method}/{basis_set} {extra_commands}')
         
         # Write the title section
         gaussian_input.write('\n\nTitle\n\n')

@@ -14,7 +14,7 @@ ps.removeHs = False
 class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, solvent=None,
                  reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
-                 freq_cut_off=150, guess_found=False):
+                 freq_cut_off=150, guess_found=False, mem='2GB', proc=2):
         """
         Initialize a TSOptimizer instance.
 
@@ -29,6 +29,8 @@ class TSOptimizer:
           factor values for intramolecular interactions.
         - freq_cut_off (int, optional): Frequency cutoff value.
         - guess_found (bool, optional): Indicates if a guess is found.
+        - mem (str, optional): Gaussian memory specification. Defaults to '2GB'.
+        - proc (int, optional): Number of processors. Defaults to 2.
         """
         self.rxn_id = rxn_id
         self.reactant_smiles = reaction_smiles.split('>>')[0]
@@ -38,6 +40,8 @@ class TSOptimizer:
         self.reactive_complex_factor_values_intra = reactive_complex_factor_values_intra
         self.freq_cut_off = freq_cut_off
         self.xtb_external_path = xtb_external_path
+        self.mem = mem
+        self.proc = proc
 
         self.charge, self.multiplicity = self.get_charge_and_multiplicity()
 
@@ -263,7 +267,8 @@ class TSOptimizer:
         xyz_to_gaussian_input(
             os.path.join(self.path_dir, file_name), ts_search_inp_file,
             method=method, basis_set=basis_set, extra_commands=extra_commands,
-            charge=self.charge, multiplicity=self.multiplicity
+            charge=self.charge, multiplicity=self.multiplicity, mem=self.mem, 
+            proc=self.proc 
         )
 
         return ts_search_inp_file
@@ -288,6 +293,7 @@ class TSOptimizer:
                     f'{os.path.splitext(log_file)[0]}.xyz',
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
                     method=f'external={self.xtb_external_path}',
+                    mem=self.mem, proc=self.proc,
                     solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity
                 )
             else:
@@ -295,6 +301,7 @@ class TSOptimizer:
                     f'{os.path.splitext(log_file)[0]}.xyz',
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
                     method=f'{method}/{basis_set} ',
+                    mem=self.mem, proc=self.proc,
                     solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity
                 )
 
