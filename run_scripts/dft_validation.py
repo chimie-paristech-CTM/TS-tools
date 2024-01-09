@@ -6,7 +6,7 @@ import argparse
 import shutil
 
 from reaction_profile_generator.ts_optimizer import TSOptimizer
-from reaction_profile_generator.utils import setup_dir, get_reaction_list
+from reaction_profile_generator.utils import setup_dir, get_reaction_list, print_statistics
 
 
 def get_args():
@@ -19,8 +19,10 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--solvent', action='store', type=str, default=None)
     parser.add_argument('--input-file', action='store', type=str, default='test_aldol.txt')
-    parser.add_argument('--input_dir', action='store', type=str, default='final_test_aldol')
-    parser.add_argument('--output-dir', action='store', type=str, default='work_dir')
+    parser.add_argument('--input-dir', action='store', type=str, default='final_test_aldol')
+    parser.add_argument('--output-dir', action='store', type=str, default='validation_dir')
+    parser.add_argument('--mem', action='store', type=str, default='16GB')
+    parser.add_argument('--proc', action='store', type=int, default=8)
 
     return parser.parse_args()
 
@@ -43,13 +45,16 @@ def validate_individual_ts(validation_args):
     ts_optimizer.path_dir = guess_dir_path
     ts_optimizer.final_guess_dir = ts_optimizer.reaction_dir
 
-    for file in os.listdir(guess_dir_path):
-        if 'ts_guess' in file and file.endswith('.xyz'):
-            ts_guess_file = os.path.join(guess_dir_path, file)
-        elif file == 'reactants_geometry.xyz':
-            shutil.copy(os.path.join(guess_dir_path, file), ts_optimizer.rp_geometries_dir)
-        elif file == 'products_geometry.xyz':
-            shutil.copy(os.path.join(guess_dir_path, file), ts_optimizer.rp_geometries_dir)
+    try:
+        for file in os.listdir(guess_dir_path):
+            if 'ts_guess' in file and file.endswith('.xyz'):
+                ts_guess_file = os.path.join(guess_dir_path, file)
+            elif file == 'reactants_geometry.xyz':
+                shutil.copy(os.path.join(guess_dir_path, file), ts_optimizer.rp_geometries_dir)
+            elif file == 'products_geometry.xyz':
+                shutil.copy(os.path.join(guess_dir_path, file), ts_optimizer.rp_geometries_dir)
+    except Exception as e:
+        print(e)
 
     if ts_guess_file is not None:
         ts_optimizer.modify_ts_guess_list([ts_guess_file])
@@ -60,16 +65,12 @@ def validate_individual_ts(validation_args):
             pass
     
     if ts_validated:
-        #for file in os.listdir(ts_optimizer.g16_dir):
-        #    if 'reverse' not in file and 'forward' not in file:
-        #        if file.endswith('.xyz') or file.endswith('.log'):
-        #            shutil.copy(file, ts_optimizer.reaction_dir)
         return ts_optimizer.rxn_id
     
     return False
 
 
-def validate_ts_guesses(input_dir, output_dir, reaction_list, solvent):
+def validate_ts_guesses(input_dir, output_dir, reaction_list, solvent, mem='16GB', proc=8):
     """
     Validate transition state guesses for a list of reactions.
 
@@ -78,6 +79,8 @@ def validate_ts_guesses(input_dir, output_dir, reaction_list, solvent):
     - output_dir (str): Output directory.
     - reaction_list (list): List of tuples containing reaction indices and SMILES strings.
     - solvent (str): Solvent information.
+    - mem (str, optional): Amount of memory to allocate for the calculations (default is '16GB').
+    - proc (int, optional): Number of processor cores to use for the calculations (default is 8).
 
     Returns:
     - list: List of validated reaction IDs.
@@ -89,7 +92,7 @@ def validate_ts_guesses(input_dir, output_dir, reaction_list, solvent):
 
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append([
-            TSOptimizer(rxn_idx, rxn_smiles, None, solvent=solvent, guess_found=True),
+            TSOptimizer(rxn_idx, rxn_smiles, None, solvent=solvent, guess_found=True, mem=mem, proc=proc),
             input_dir_path
         ])
 
@@ -99,7 +102,7 @@ def validate_ts_guesses(input_dir, output_dir, reaction_list, solvent):
 
     num_processes = multiprocessing.cpu_count()
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_processes/2)) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_processes/proc)) as executor:
         # Map the function to each object in parallel
         results = list(executor.map(validate_individual_ts, ts_optimizer_list))
 
@@ -117,4 +120,7 @@ if __name__ == "__main__":
     setup_dir(args.output_dir)
     start_time = time.time()
 
-    validate_ts_guesses(args.input_dir, args.output_dir, reaction_list, args.solvent)
+    validated_reactions = validate_ts_guesses(args.input_dir, args.output_dir, reaction_list, 
+                                              args.solvent, args.mem, args.proc)
+
+    print_statistics(validated_reactions, start_time)

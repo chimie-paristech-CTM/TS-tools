@@ -26,7 +26,9 @@ def get_args():
     parser.add_argument('--xtb-external-path', action='store', type=str, 
                         default='"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
     parser.add_argument('--input-file', action='store', type=str, default='reactions_am.txt')
-    parser.add_argument('--target-dir', action='store', type=str, default='work_dir')
+    parser.add_argument('--target-dir', action='store', type=str, default='work_dir_dft')
+    parser.add_argument('--mem', action='store', type=str, default='16GB')
+    parser.add_argument('--proc', action='store', type=int, default=8)
 
     return parser.parse_args()
 
@@ -54,7 +56,7 @@ def optimize_individual_ts(ts_optimizer):
         for _ in range(3):
             try:
                 ts_optimizer.set_ts_guess_list(reactive_complex_factor)
-                ts_found = ts_optimizer.determine_ts() 
+                ts_found = ts_optimizer.determine_ts(xtb=False) 
                 remove_files_in_directory(os.getcwd())
                 if ts_found:
                     end_time_process = time.time()
@@ -71,7 +73,8 @@ def optimize_individual_ts(ts_optimizer):
 
 def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent,
                              reactive_complex_factor_list_intermolecular,
-                             reactive_complex_factor_list_intramolecular, freq_cut_off):
+                             reactive_complex_factor_list_intramolecular, freq_cut_off,
+                             mem='16GB', proc=8):
     """
     Obtain transition states for a list of reactions.
 
@@ -83,6 +86,8 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
     - reactive_complex_factor_list_intermolecular (list): List of reactive complex factors for intermolecular reactions.
     - reactive_complex_factor_list_intramolecular (list): List of reactive complex factors for intramolecular reactions.
     - freq_cut_off (int): Frequency cutoff.
+    - mem (str, optional): Amount of memory to allocate for the calculations (default is '16GB').
+    - proc (int, optional): Number of processor cores to use for the calculations (default is 8).
 
     Returns:
     - list: List of successful reactions.
@@ -94,13 +99,14 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path,
                                              solvent, reactive_complex_factor_list_intermolecular,
-                                             reactive_complex_factor_list_intramolecular, freq_cut_off))
+                                             reactive_complex_factor_list_intramolecular, freq_cut_off,
+                                             mem=mem, proc=proc))
 
     print(f'{len(ts_optimizer_list)} reactions to process...')
 
     num_processes = multiprocessing.cpu_count()
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=int(num_processes/2)) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_processes) as executor:
         # Map the function to each object in parallel
         results = list(executor.map(optimize_individual_ts, ts_optimizer_list))
 
@@ -124,7 +130,7 @@ if __name__ == "__main__":
         args.xtb_external_path, solvent=args.solvent, 
         reactive_complex_factor_list_intramolecular=args.reactive_complex_factors_intra, 
         reactive_complex_factor_list_intermolecular=args.reactive_complex_factors_inter, 
-        freq_cut_off=args.freq_cut_off)
+        freq_cut_off=args.freq_cut_off, mem=args.mem, proc=args.proc)
     
     # print final statistics about the run
     print_statistics(successful_reactions, start_time)
