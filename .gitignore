@@ -1,2 +1,3 @@
 .xtboptok
 src/reaction_profile_generator/__pycache__/*
+.autode_calculations
