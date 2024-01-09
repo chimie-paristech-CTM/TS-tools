@@ -18,8 +18,8 @@ def get_args():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--solvent', action='store', type=str, default=None)
-    parser.add_argument('--input-file', action='store', type=str, default='test_aldol.txt')
-    parser.add_argument('--input-dir', action='store', type=str, default='final_test_aldol')
+    parser.add_argument('--input-file', action='store', type=str, default='data/reactions_am.txt')
+    parser.add_argument('--input-dir', action='store', type=str, default='final_work_dir')
     parser.add_argument('--output-dir', action='store', type=str, default='validation_dir')
     parser.add_argument('--mem', action='store', type=str, default='16GB')
     parser.add_argument('--proc', action='store', type=int, default=8)
