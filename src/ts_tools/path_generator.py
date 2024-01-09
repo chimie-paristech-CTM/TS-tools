@@ -11,7 +11,7 @@ import subprocess
 import shutil
 import random
 
-from reaction_profile_generator.utils import write_xyz_file_from_ade_atoms
+from ts_tools.utils import write_xyz_file_from_ade_atoms
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False

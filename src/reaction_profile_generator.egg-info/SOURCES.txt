@@ -1,8 +1,0 @@
-LICENSE
-README.md
-setup.cfg
-setup.py
-src/reaction_profile_generator.egg-info/PKG-INFO
-src/reaction_profile_generator.egg-info/SOURCES.txt
-src/reaction_profile_generator.egg-info/dependency_links.txt
-src/reaction_profile_generator.egg-info/top_level.txt

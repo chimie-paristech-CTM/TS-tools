@@ -1,7 +1,7 @@
 Metadata-Version: 2.1
-Name: reaction-profile-generator
+Name: ts-tools
 Version: 0.4.2
-Summary: Generate reaction profiles based on a reaction SMILES
+Summary: Tools to generate reaction profiles based on a reaction SMILES input
 Author: Thijs Stuyver
 License: MIT
 License-File: LICENSE
