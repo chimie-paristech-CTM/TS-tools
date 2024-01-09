@@ -1,14 +1,2 @@
 .xtboptok
-test*
-dft_ts_structures 2/
-src/reaction_profile_generator/generator_old.py
 src/reaction_profile_generator/__pycache__/*
-benchmarking
-path.inp
-benchmarking_x
-modify_files.py
-benchmarking_semi/
-benchmarkingxxxxxxxxxxx/
-done_ts/
-benchmarking_1.8_1.01_0.7_150/
-benchmarking_1.8_1.02_0.7_150/

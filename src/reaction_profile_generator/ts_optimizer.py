@@ -389,5 +389,3 @@ def find_local_max_indices(numbers):
         if numbers[i] > numbers[i - 1] and numbers[i] > numbers[i + 1]:
             local_max_indices.append(i)
     return local_max_indices
-
-
