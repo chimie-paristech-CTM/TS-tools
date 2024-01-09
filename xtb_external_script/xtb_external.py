@@ -148,8 +148,8 @@ def run_xtb(natoms, nderiv, chrg, spin, atomtypes, coords, solvent=None):
 
     write_xyz(natoms, atomtypes, coords)
 
-    os.environ["OMP_NUM_THREADS"] = str(4)
-    os.environ["MKL_NUM_THREADS"] = str(4)
+    os.environ["OMP_NUM_THREADS"] = str(2)
+    os.environ["MKL_NUM_THREADS"] = str(2)
     cmd = f"xtb mol.xyz --chrg {chrg} --uhf {spin - 1} --gfn 2 "
     if nderiv == 1:
         cmd += "--grad "

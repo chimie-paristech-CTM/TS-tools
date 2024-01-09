@@ -17,15 +17,15 @@ def get_args():
     - argparse.Namespace: Parsed command-line arguments.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--reactive-complex_factors-intra', nargs='+', type=float,
+    parser.add_argument('--reactive-complex-factors-intra', nargs='+', type=float,
                         default=[1.2, 1.3, 1.8])
     parser.add_argument('--reactive-complex-factors-inter', nargs='+', type=float, 
                         default=[2.5, 1.8, 2.8, 1.3])
     parser.add_argument('--freq-cut-off', action='store', type=int, default=150)
     parser.add_argument('--solvent', action='store', type=str, default=None)
     parser.add_argument('--xtb-external-path', action='store', type=str, 
-                        default='"/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
-    parser.add_argument('--input-file', action='store', type=str, default='reactions_am.txt')
+                        default='"xtb_external_path/xtb_external.py"')
+    parser.add_argument('--input-file', action='store', type=str, default='data/reactions_am.txt')
     parser.add_argument('--target-dir', action='store', type=str, default='work_dir')
 
     return parser.parse_args()
