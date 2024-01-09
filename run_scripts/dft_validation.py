@@ -5,8 +5,8 @@ import concurrent.futures
 import argparse
 import shutil
 
-from reaction_profile_generator.ts_optimizer import TSOptimizer
-from reaction_profile_generator.utils import setup_dir, get_reaction_list, print_statistics
+from ts_tools.ts_optimizer import TSOptimizer
+from ts_tools.utils import setup_dir, get_reaction_list, print_statistics
 
 
 def get_args():

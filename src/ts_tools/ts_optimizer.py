@@ -3,10 +3,10 @@ import os
 import shutil
 from rdkit import Chem
 
-from reaction_profile_generator.path_generator import PathGenerator
-from reaction_profile_generator.confirm_ts_guess import validate_ts_guess
-from reaction_profile_generator.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory
-from reaction_profile_generator.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
+from ts_tools.path_generator import PathGenerator
+from ts_tools.confirm_ts_guess import validate_ts_guess
+from ts_tools.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory
+from ts_tools.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False

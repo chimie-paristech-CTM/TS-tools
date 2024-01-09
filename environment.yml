@@ -6,6 +6,7 @@ channels:
   - defaults
   - pypi
 dependencies:
+  - python=3.10
   - ipykernel=6.9
   - pandas=1.4
   - pebble=4.6

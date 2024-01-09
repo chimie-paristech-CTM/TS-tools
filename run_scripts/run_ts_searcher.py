@@ -4,8 +4,8 @@ import multiprocessing
 import concurrent.futures
 import argparse
 
-from reaction_profile_generator.ts_optimizer import TSOptimizer
-from reaction_profile_generator.utils import remove_files_in_directory, copy_final_outputs, \
+from ts_tools.ts_optimizer import TSOptimizer
+from ts_tools.utils import remove_files_in_directory, copy_final_outputs, \
     setup_dir, get_reaction_list, print_statistics
 
 

@@ -1,0 +1,8 @@
+LICENSE
+README.md
+setup.cfg
+setup.py
+src/ts_tools.egg-info/PKG-INFO
+src/ts_tools.egg-info/SOURCES.txt
+src/ts_tools.egg-info/dependency_links.txt
+src/ts_tools.egg-info/top_level.txt
