@@ -24,7 +24,7 @@ def get_args():
     parser.add_argument('--freq-cut-off', action='store', type=int, default=150)
     parser.add_argument('--solvent', action='store', type=str, default=None)
     parser.add_argument('--xtb-external-path', action='store', type=str, 
-                        default='"xtb_external_path/xtb_external.py"')
+                        default="xtb_external_script/xtb_external.py")
     parser.add_argument('--input-file', action='store', type=str, default='data/reactions_am.txt')
     parser.add_argument('--target-dir', action='store', type=str, default='work_dir')
 
@@ -118,10 +118,11 @@ if __name__ == "__main__":
     setup_dir(args.target_dir)
     reaction_list = get_reaction_list(args.input_file)
     start_time = time.time()
+    xtb_external_path = f'"{os.path.join(os.getcwd(), args.xtb_external_path)}"'
 
     # run all reactions in parallel
     successful_reactions = obtain_transition_states(args.target_dir, reaction_list, 
-        args.xtb_external_path, solvent=args.solvent, 
+        xtb_external_path, solvent=args.solvent, 
         reactive_complex_factor_list_intramolecular=args.reactive_complex_factors_intra, 
         reactive_complex_factor_list_intermolecular=args.reactive_complex_factors_inter, 
         freq_cut_off=args.freq_cut_off)
