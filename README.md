@@ -58,6 +58,8 @@ Additional options can also be provided:
 2. '--output-dir': Specifies the working directory in which all files will be saved.
 3. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
 4. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8) 
+5. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
+6. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
 
 ### Generating TS guesses at DFT level of theory
 
@@ -80,6 +82,8 @@ Additional options can also be provided:
 5. '--target-dir': Specifies the working directory in which all files will be saved; final reactant, product and TS guess geometries (as well as the TS .log file) are saved in another directory with the ’final_’ prefix.
 6. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
 7. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
+8. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
+9. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
 
 ### References
 

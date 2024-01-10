@@ -29,6 +29,8 @@ def get_args():
     parser.add_argument('--target-dir', action='store', type=str, default='work_dir_dft')
     parser.add_argument('--mem', action='store', type=str, default='16GB')
     parser.add_argument('--proc', action='store', type=int, default=8)
+    parser.add_argument('--functional', action='store', type=str, default='UB3LYP')
+    parser.add_argument('--basis-set', action='store', type=str, default='6-31G**')
 
     return parser.parse_args()
 
@@ -56,7 +58,7 @@ def optimize_individual_ts(ts_optimizer):
         for _ in range(3):
             try:
                 ts_optimizer.set_ts_guess_list(reactive_complex_factor)
-                ts_found = ts_optimizer.determine_ts(xtb=False) 
+                ts_found = ts_optimizer.determine_ts(xtb=False, method=args.functional, basis_set=args.basis_set) 
                 remove_files_in_directory(os.getcwd())
                 if ts_found:
                     end_time_process = time.time()

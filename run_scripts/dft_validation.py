@@ -23,6 +23,8 @@ def get_args():
     parser.add_argument('--output-dir', action='store', type=str, default='validation_dir')
     parser.add_argument('--mem', action='store', type=str, default='16GB')
     parser.add_argument('--proc', action='store', type=int, default=8)
+    parser.add_argument('--functional', action='store', type=str, default='UB3LYP')
+    parser.add_argument('--basis-set', action='store', type=str, default='6-31G**')
 
     return parser.parse_args()
 
@@ -59,7 +61,7 @@ def validate_individual_ts(validation_args):
     if ts_guess_file is not None:
         ts_optimizer.modify_ts_guess_list([ts_guess_file])
         try:
-            ts_validated = ts_optimizer.determine_ts(xtb=False)
+            ts_validated = ts_optimizer.determine_ts(xtb=False, method=args.functional, basis_set=args.basis_set)
         except Exception as e:
             print(e)
             pass
