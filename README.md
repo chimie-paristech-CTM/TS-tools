@@ -4,7 +4,7 @@ This is the repository corresponding to the TS-tools project.
 
 ### Setting up the environment
 
-To set up the ts_tools conda environment:
+To set up the ts-tools conda environment:
 
 ```
 conda env create -f environment.yml
@@ -87,4 +87,26 @@ Additional options can also be provided:
 
 ### References
 
+If (parts of) this workflow are used as part of a publication, please cite the associated paper:
+
+```
+xxx
+``` 
+
+Furthermore, since the workflow makes use of autodE at several instances, also consider citing the paper in which this code was originally presented:
+
+```
+@article{autodE,
+  doi = {10.1002/anie.202011941},
+  url = {https://doi.org/10.1002/anie.202011941},
+  year = {2021},
+  publisher = {Wiley},
+  volume = {60},
+  number = {8},
+  pages = {4266--4274},
+  author = {Tom A. Young and Joseph J. Silcock and Alistair J. Sterling and Fernanda Duarte},
+  title = {{autodE}: Automated Calculation of Reaction Energy Profiles -- Application to Organic and Organometallic Reactions},
+  journal = {Angewandte Chemie International Edition}
+}
+```
 
