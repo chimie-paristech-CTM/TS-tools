@@ -75,10 +75,13 @@ class TSOptimizer:
             return False
 
         if xtb:
-            method = f'external={self.xtb_external_path}'
+            if self.solvent is not None:
+                method = f'external="{self.xtb_external_path} alpb={self.solvent}"'
+            else:
+                method = f'external="{self.xtb_external_path}"'
             basis_set = ''
 
-        if self.solvent is not None:
+        if self.solvent is not None and not xtb:
             extra_commands = f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.solvent})'
         else:
             extra_commands = f'opt=(ts, calcall, noeigen, nomicro)'
@@ -292,7 +295,7 @@ class TSOptimizer:
                 irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(
                     f'{os.path.splitext(log_file)[0]}.xyz',
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
-                    method=f'external={self.xtb_external_path}',
+                    method=self.xtb_external_path,
                     mem=self.mem, proc=self.proc,
                     solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity
                 )
@@ -321,7 +324,6 @@ class TSOptimizer:
             return reaction_correct
 
         except Exception as e:
-            #print(e)
             return False
 
     def reaction_is_intramolecular(self):

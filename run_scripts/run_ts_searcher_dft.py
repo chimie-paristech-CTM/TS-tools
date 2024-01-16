@@ -126,7 +126,7 @@ if __name__ == "__main__":
     setup_dir(args.target_dir)
     reaction_list = get_reaction_list(args.input_file)
     start_time = time.time()
-    xtb_external_path = f'"{os.path.join(os.getcwd(), args.xtb_external_path)}"'
+    xtb_external_path = f'{os.path.join(os.getcwd(), args.xtb_external_path)}'
 
     # run all reactions in parallel
     successful_reactions = obtain_transition_states(args.target_dir, reaction_list, 

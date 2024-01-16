@@ -333,15 +333,13 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
     else:
         if solvent is not None:
-            input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method} SCRF=(Solvent={solvent})\n\n' \
-                f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
-            input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method} SCRF=(Solvent={solvent})\n\n' \
-                f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
+            external_method = f'external="{method} alpb={solvent}"'
         else:
-            input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method}\n\n' \
-                f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
-            input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method}\n\n' \
-                f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
+            external_method = f'external="{method}"'
+        input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {external_method}\n\n' \
+            f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
+        input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {external_method}\n\n' \
+            f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
 
     # Write the input content to a Gaussian input file -- forward
     input_filename_f = os.path.join(os.path.dirname(xyz_file), f'{output_prefix}_forward.com')
