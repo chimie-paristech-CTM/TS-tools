@@ -13,6 +13,7 @@ conda env create -f environment.yml
 To install the TS-tools package, activate the ts-tools environment and run the following command within the TS-tools directory:
 
 ```
+conda activate ts-tools
 pip install .
 ```
 
@@ -21,6 +22,8 @@ Additionally, Gaussian16 needs to be available. In HPC environments, this can ty
 ```
 module load gaussian/g16_C01
 ```
+
+Finally, the xTB path in the external xtb script needs to be adapted to the local settings (L13 in 'xtb/external_script/xtb_external.py')
 
 ### Generating TS guesses at xTB level-of-theory
 
