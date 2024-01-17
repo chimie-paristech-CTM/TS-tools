@@ -82,7 +82,7 @@ class TSOptimizer:
             basis_set = ''
 
         if self.solvent is not None and not xtb:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.solvent})'
+            extra_commands = f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.solvent}, smd)'
         else:
             extra_commands = f'opt=(ts, calcall, noeigen, nomicro)'
 

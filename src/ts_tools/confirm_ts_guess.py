@@ -251,7 +251,7 @@ def get_negative_frequencies(filename, charge, solvent):
     """
     with open('hess.out', 'w') as out:
         if solvent is not None:
-            process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess --solvent {solvent}'.split(), 
+            process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess --alpb {solvent}'.split(), 
                                    stderr=subprocess.DEVNULL, stdout=out)
         else:
             process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
