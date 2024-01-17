@@ -84,9 +84,9 @@ class TSOptimizer:
             basis_set = ''
 
         if self.dft_solvent is not None and not xtb:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.dft_solvent}, smd)'
+            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles=30) SCRF=(Solvent={self.dft_solvent}, smd)'
         else:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro)'
+            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles=30)'
 
         remove_files_in_directory(self.g16_dir)
 
@@ -254,7 +254,7 @@ class TSOptimizer:
             )
     
     def generate_g16_input_ts_opt(self, idx, file_name, method, basis_set='',
-                               extra_commands='opt=(ts, calcall, noeigen, nomicro)'):
+                               extra_commands='opt=(ts, calcall, noeigen, nomicro, MaxCycles=30)'):
         """
         Generate Gaussian 16 input file for transition state optimization.
 

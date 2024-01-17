@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
     # run all reactions in parallel
     successful_reactions = obtain_transition_states(args.target_dir, reaction_list, 
-        xtb_external_path, xtb_solvent=args.xtb_solvent, dft_solvent=args.dft_solvent
+        xtb_external_path, xtb_solvent=args.xtb_solvent, dft_solvent=args.dft_solvent,
         reactive_complex_factor_list_intramolecular=args.reactive_complex_factors_intra, 
         reactive_complex_factor_list_intermolecular=args.reactive_complex_factors_inter, 
         freq_cut_off=args.freq_cut_off, mem=args.mem, proc=args.proc)
