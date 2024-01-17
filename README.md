@@ -80,13 +80,14 @@ Additional options can also be provided:
 
 1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions.
 2. '--reactive-complex-factors-inter': Specifies a list of floating-point numbers representing reactive complex factors for inter-molecular interactions.
-3. '--solvent': Specifies the name of the solvent (needs to be supported both in xTB and Gaussian16, e.g., 'water')
-4. '--freq-cut-off': Specifies the imaginary frequency cut-off used during filtering of plausible starting points for transition state guess optimization.
-5. '--target-dir': Specifies the working directory in which all files will be saved; final reactant, product and TS guess geometries (as well as the TS .log file) are saved in another directory with the ’final_’ prefix.
-6. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
-7. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
-8. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
-9. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
+3. '--xtb_solvent': Specifies the name of the solvent to be used in the xTB calculations
+4. '--dft_solvent': Specifies the name of the solvent to be used in the DFT calculations
+5. '--freq-cut-off': Specifies the imaginary frequency cut-off used during filtering of plausible starting points for transition state guess optimization.
+6. '--target-dir': Specifies the working directory in which all files will be saved; final reactant, product and TS guess geometries (as well as the TS .log file) are saved in another directory with the ’final_’ prefix.
+7. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
+8. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
+9. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
+10. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
 
 ### References
 
