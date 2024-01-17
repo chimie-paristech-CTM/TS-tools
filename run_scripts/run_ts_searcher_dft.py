@@ -22,7 +22,8 @@ def get_args():
     parser.add_argument('--reactive-complex-factors-inter', nargs='+', type=float, 
                         default=[2.5, 1.8, 2.8, 1.3])
     parser.add_argument('--freq-cut-off', action='store', type=int, default=150)
-    parser.add_argument('--solvent', action='store', type=str, default=None)
+    parser.add_argument('--xtb-solvent', action='store', type=str, default=None)
+    parser.add_argument('--dft-solvent', action='store', type=str, default=None)
     parser.add_argument('--xtb-external-path', action='store', type=str, 
                         default="xtb_external_script/xtb_external.py")
     parser.add_argument('--input-file', action='store', type=str, default='reactions_am.txt')
@@ -77,7 +78,7 @@ def optimize_individual_ts(ts_optimizer):
 
     return None
 
-def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent,
+def obtain_transition_states(target_dir, reaction_list, xtb_external_path, xtb_solvent, dft_solvent,
                              reactive_complex_factor_list_intermolecular,
                              reactive_complex_factor_list_intramolecular, freq_cut_off,
                              mem='16GB', proc=8):
@@ -88,7 +89,8 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
     - target_dir (str): Target directory.
     - reaction_list (list): List of reactions.
     - xtb_external_path (str): Path to the XTB external script.
-    - solvent (str): Solvent information.
+    - xtb_solvent (str): Solvent information for xTB calculations.
+    - dft_solvent (str): Solvent information for DFT calculations.
     - reactive_complex_factor_list_intermolecular (list): List of reactive complex factors for intermolecular reactions.
     - reactive_complex_factor_list_intramolecular (list): List of reactive complex factors for intramolecular reactions.
     - freq_cut_off (int): Frequency cutoff.
@@ -104,7 +106,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
 
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path,
-                                             solvent, reactive_complex_factor_list_intermolecular,
+                                             xtb_solvent, dft_solvent, reactive_complex_factor_list_intermolecular,
                                              reactive_complex_factor_list_intramolecular, freq_cut_off,
                                              mem=mem, proc=proc))
 
@@ -134,7 +136,7 @@ if __name__ == "__main__":
 
     # run all reactions in parallel
     successful_reactions = obtain_transition_states(args.target_dir, reaction_list, 
-        xtb_external_path, solvent=args.solvent, 
+        xtb_external_path, xtb_solvent=args.xtb_solvent, dft_solvent=args.dft_solvent
         reactive_complex_factor_list_intramolecular=args.reactive_complex_factors_intra, 
         reactive_complex_factor_list_intermolecular=args.reactive_complex_factors_inter, 
         freq_cut_off=args.freq_cut_off, mem=args.mem, proc=args.proc)

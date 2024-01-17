@@ -97,7 +97,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
 
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path,
-                                             solvent, reactive_complex_factor_list_intermolecular,
+                                             solvent, None, reactive_complex_factor_list_intermolecular,
                                              reactive_complex_factor_list_intramolecular, freq_cut_off))
 
     print(f'{len(ts_optimizer_list)} reactions to process...')

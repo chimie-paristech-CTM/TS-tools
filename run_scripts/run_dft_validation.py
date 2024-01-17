@@ -94,7 +94,7 @@ def validate_ts_guesses(input_dir, output_dir, reaction_list, solvent, mem='16GB
 
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append([
-            TSOptimizer(rxn_idx, rxn_smiles, None, solvent=solvent, guess_found=True, mem=mem, proc=proc),
+            TSOptimizer(rxn_idx, rxn_smiles, None, xtb_solvent=None, dft_solvent=solvent, guess_found=True, mem=mem, proc=proc),
             input_dir_path
         ])
 

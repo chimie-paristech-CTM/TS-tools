@@ -12,7 +12,7 @@ ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
 class TSOptimizer:
-    def __init__(self, rxn_id, reaction_smiles, xtb_external_path, solvent=None,
+    def __init__(self, rxn_id, reaction_smiles, xtb_external_path, xtb_solvent=None, dft_solvent=None,
                  reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
                  freq_cut_off=150, guess_found=False, mem='2GB', proc=2):
         """
@@ -22,7 +22,8 @@ class TSOptimizer:
         - rxn_id (int): Reaction ID.
         - reaction_smiles (str): SMILES representation of the reaction.
         - xtb_external_path (str): Path to external xtb executable.
-        - solvent (str, optional): Solvent information.
+        - xtb_solvent (str, optional): Solvent information for xTB calculations.
+        - dft_solvent (str, optional): Solvent information for DFT calculations
         - reactive_complex_factor_values_inter (list, optional): Reactive complex
           factor values for intermolecular interactions.
         - reactive_complex_factor_values_intra (list, optional): Reactive complex
@@ -35,7 +36,8 @@ class TSOptimizer:
         self.rxn_id = rxn_id
         self.reactant_smiles = reaction_smiles.split('>>')[0]
         self.product_smiles = reaction_smiles.split('>>')[-1]
-        self.solvent = solvent
+        self.xtb_solvent = xtb_solvent
+        self.dft_solvent = dft_solvent
         self.reactive_complex_factor_values_inter = reactive_complex_factor_values_inter
         self.reactive_complex_factor_values_intra = reactive_complex_factor_values_intra
         self.freq_cut_off = freq_cut_off
@@ -75,14 +77,14 @@ class TSOptimizer:
             return False
 
         if xtb:
-            if self.solvent is not None:
-                method = f'external="{self.xtb_external_path} alpb={self.solvent}"'
+            if self.xtb_solvent is not None:
+                method = f'external="{self.xtb_external_path} alpb={self.xtb_solvent}"'
             else:
                 method = f'external="{self.xtb_external_path}"'
             basis_set = ''
 
-        if self.solvent is not None and not xtb:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.solvent}, smd)'
+        if self.dft_solvent is not None and not xtb:
+            extra_commands = f'opt=(ts, calcall, noeigen, nomicro) SCRF=(Solvent={self.dft_solvent}, smd)'
         else:
             extra_commands = f'opt=(ts, calcall, noeigen, nomicro)'
 
@@ -141,18 +143,18 @@ class TSOptimizer:
         # Quick run to see if inversion is needed
         path = PathGenerator(
             self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-            self.solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1
+            self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1
         )
 
         if len(path.formed_bonds) < len(path.broken_bonds):
             path = PathGenerator(
                 self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                self.solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
+                self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
             )
         else:
             path = PathGenerator(
                 self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                self.solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
+                self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
             )
 
         return path
@@ -297,7 +299,7 @@ class TSOptimizer:
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
                     method=self.xtb_external_path,
                     mem=self.mem, proc=self.proc,
-                    solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity
+                    solvent=self.xtb_solvent, charge=self.charge, multiplicity=self.multiplicity
                 )
             else:
                 irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(
@@ -305,7 +307,7 @@ class TSOptimizer:
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
                     method=f'{method}/{basis_set} ',
                     mem=self.mem, proc=self.proc,
-                    solvent=self.solvent, charge=self.charge, multiplicity=self.multiplicity
+                    solvent=self.dft_solvent, charge=self.charge, multiplicity=self.multiplicity
                 )
 
             run_irc(irc_input_file_f)
@@ -318,12 +320,12 @@ class TSOptimizer:
                 f'{os.path.splitext(irc_input_file_r)[0]}.xyz',
                 os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'),
                 os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'),
-                self.charge, self.multiplicity, self.solvent
+                self.charge, self.multiplicity, self.xtb_solvent
             )
 
             return reaction_correct
 
-        except Exception as e:
+        except Exception:
             return False
 
     def reaction_is_intramolecular(self):
