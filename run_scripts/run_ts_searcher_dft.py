@@ -48,10 +48,14 @@ def optimize_individual_ts(ts_optimizer):
     # First select the set of reactive_complex factor values to try
     start_time_process = time.time()
 
-    if ts_optimizer.reaction_is_intramolecular():
-        reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_intra
-    else:
-        reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_inter
+    try:    
+        if ts_optimizer.reaction_is_intramolecular():
+            reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_intra
+        else:
+            reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_inter
+    except Exception as e:
+        print(e)
+        return None
 
     # Then search for TS by iterating through reactive complex factor values
     for reactive_complex_factor in reactive_complex_factor_values:
