@@ -40,7 +40,7 @@ Additional options can also be provided:
 
 1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions.
 2. '--reactive-complex-factors-inter': Specifies a list of floating-point numbers representing reactive complex factors for inter-molecular interactions.
-3. '--solvent': Specifies the name of the solvent (needs to be supported both in xTB and Gaussian16, e.g., 'water')
+3. '--solvent': Specifies the name of the solvent (needs to be supported in xTB, e.g., 'water')
 4. '--freq-cut-off': Specifies the imaginary frequency cut-off used during filtering of plausible starting points for transition state guess optimization.
 5. '--target-dir': Specifies the working directory in which all files will be saved; final reactant, product and TS guess geometries (as well as the TS .log file) are saved in another directory with the ’final_’ prefix.
 
@@ -57,7 +57,7 @@ and the ’input-dir’ command line option corresponds to the location of the f
 
 Additional options can also be provided:
 
-1. '--solvent': Specifies the name of the solvent (needs to be supported both in xTB and Gaussian16, e.g., 'water')
+1. '--solvent': Specifies the name of the solvent (needs to be supported both in Gaussian16, e.g., 'water')
 2. '--output-dir': Specifies the working directory in which all files will be saved.
 3. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
 4. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8) 
@@ -80,14 +80,16 @@ Additional options can also be provided:
 
 1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions.
 2. '--reactive-complex-factors-inter': Specifies a list of floating-point numbers representing reactive complex factors for inter-molecular interactions.
-3. '--xtb_solvent': Specifies the name of the solvent to be used in the xTB calculations
-4. '--dft_solvent': Specifies the name of the solvent to be used in the DFT calculations
-5. '--freq-cut-off': Specifies the imaginary frequency cut-off used during filtering of plausible starting points for transition state guess optimization.
-6. '--target-dir': Specifies the working directory in which all files will be saved; final reactant, product and TS guess geometries (as well as the TS .log file) are saved in another directory with the ’final_’ prefix.
-7. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
-8. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
-9. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
-10. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
+3. '--solvent': Specifies the name of the solvent to be used in both the xTB and DFT calculations
+4. '--xtb_solvent': Specifies the name of the solvent to be used in the xTB calculations (only needed when universal 'solvent' keyword is not specified)
+5. '--dft_solvent': Specifies the name of the solvent to be used in the DFT calculations (only needed when universal 'solvent' keyword is not specified)
+6. '--freq-cut-off': Specifies the imaginary frequency cut-off used during filtering of plausible starting points for transition state guess optimization.
+7. '--target-dir': Specifies the working directory in which all files will be saved; final reactant, product and TS guess geometries (as well as the TS .log file) are saved in another 
+directory with the ’final_’ prefix.
+8. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
+9. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
+10. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
+11. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
 
 ### References
 

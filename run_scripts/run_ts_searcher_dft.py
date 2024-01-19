@@ -22,6 +22,7 @@ def get_args():
     parser.add_argument('--reactive-complex-factors-inter', nargs='+', type=float, 
                         default=[2.5, 1.8, 2.8, 1.3])
     parser.add_argument('--freq-cut-off', action='store', type=int, default=150)
+    parser.add_argument('--solvent', action='store', type=str, default=None)
     parser.add_argument('--xtb-solvent', action='store', type=str, default=None)
     parser.add_argument('--dft-solvent', action='store', type=str, default=None)
     parser.add_argument('--xtb-external-path', action='store', type=str, 
@@ -33,7 +34,14 @@ def get_args():
     parser.add_argument('--functional', action='store', type=str, default='UB3LYP')
     parser.add_argument('--basis-set', action='store', type=str, default='6-31G**')
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # If general solvent specified, and not separately for the xTB and DFT calculations, set the latter
+    if args.solvent is not None and (args.xtb_solvent is None and args.dft_solvent is None):
+        args.xtb_solvent = args.solvent
+        args.dft_solvent = args.solvent
+
+    return args
 
 
 def optimize_individual_ts(ts_optimizer):
