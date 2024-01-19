@@ -146,7 +146,8 @@ class TSOptimizer:
             self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1
         )
 
-        if len(path.formed_bonds) < len(path.broken_bonds):
+        # only inverse R and P when it is an intramolecular reaction
+        if len(path.formed_bonds) < len(path.broken_bonds) and self.reaction_is_intramolecular():
             path = PathGenerator(
                 self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
                 self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
