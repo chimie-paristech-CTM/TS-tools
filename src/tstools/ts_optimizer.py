@@ -141,7 +141,7 @@ class TSOptimizer:
         - PathGenerator: Instance of the path generator.
         """
         # if intermolecular, immediately set up the PathGenerator object
-        if '.' not in self.reactant_smiles:
+        if '.' in self.reactant_smiles:
             path = PathGenerator(
                 self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
                 self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
