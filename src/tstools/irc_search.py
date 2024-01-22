@@ -323,7 +323,7 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
     if 'external' not in method:
         if solvent is not None:
             input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method} SCRF=(Solvent={solvent}, smd)' \
-                f'\n\nIRC Calculation\n\n0 1\n{"".join(atom_coords)}\n\n'
+                f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
             input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method} SCRF=(Solvent={solvent}, smd)' \
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
         else:
