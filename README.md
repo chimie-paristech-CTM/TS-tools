@@ -101,7 +101,14 @@ Upon execution of this script, work and output directories are set up in the sam
 If (parts of) this workflow are used as part of a publication, please cite the associated paper:
 
 ```
-xxx
+@article{stuyver2024,
+  author       = {Stuyver, T.},
+  title        = {{TS-tools: Rapid and Automated Localization of 
+Transition States based on a Textual Reaction SMILES Input}},
+  journal      = {ChemRxiv},
+  year         = {2024},
+  doi          = {10.26434/chemrxiv-2024-st2tr},
+}
 ``` 
 
 Furthermore, since the workflow makes use of autodE at several instances, also consider citing the paper in which this code was originally presented:
