@@ -414,7 +414,7 @@ class PathGenerator:
             ade_mol.conformers = [conf_gen.get_simanl_conformer(ade_mol)]
 
             ade_mol.conformers[0].optimise(method=xtb)
-            dist_matrix = distance_matrix(ade_mol.coordinates, ade_mol.coordinates)
+            dist_matrix = distance_matrix(ade_mol.conformers[0].coordinates, ade_mol.conformers[0].coordinates)
             current_bond_length = dist_matrix[mol_dict[atom_i], mol_dict[atom_j]]
 
             optimal_distances[idx1, idx2] = current_bond_length
