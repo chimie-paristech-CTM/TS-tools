@@ -277,10 +277,10 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
     optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent)
     optimize_final_point_irc(reverse_xyz, charge, multiplicity, solvent)
     # then take final geometry and do actual comparison
-    forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge)
-    reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge)
-    reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge)
-    product_mol = ade.Molecule(product_xyz, name='product', charge=charge)
+    forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge, mult=multiplicity)
+    reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge, mult=multiplicity)
+    reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge, mult=multiplicity)
+    product_mol = ade.Molecule(product_xyz, name='product', charge=charge, mult=multiplicity)
 
     # if no bond change between reactant and product, abort
     if set(reactant_mol.graph.edges) == set(product_mol.graph.edges):

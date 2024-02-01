@@ -93,6 +93,7 @@ directory with the ’final_’ prefix.
 9. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
 10. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
 11. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
+12. '--max-cycles': Maximal number of cycles in TS geometry search (default is 30)
 
 Upon execution of this script, work and output directories are set up in the same manner as for the xTB script (respectively named 'work_dir_dft' and 'final_work_dir_dft' by default).
 
