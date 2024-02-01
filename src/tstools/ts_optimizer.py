@@ -14,7 +14,7 @@ ps.removeHs = False
 class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, xtb_solvent=None, dft_solvent=None,
                  reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
-                 freq_cut_off=150, guess_found=False, mem='2GB', proc=2):
+                 freq_cut_off=150, guess_found=False, mem='2GB', proc=2, max_cycles=30):
         """
         Initialize a TSOptimizer instance.
 
@@ -32,6 +32,7 @@ class TSOptimizer:
         - guess_found (bool, optional): Indicates if a guess is found.
         - mem (str, optional): Gaussian memory specification. Defaults to '2GB'.
         - proc (int, optional): Number of processors. Defaults to 2.
+        - max_cycles (int, optional): Maximal number of cycles in TS geometry search. Defaults to 30.
         """
         self.rxn_id = rxn_id
         self.reactant_smiles = reaction_smiles.split('>>')[0]
@@ -44,6 +45,7 @@ class TSOptimizer:
         self.xtb_external_path = xtb_external_path
         self.mem = mem
         self.proc = proc
+        self.max_cycles = max_cycles
 
         self.charge, self.multiplicity = self.get_charge_and_multiplicity()
 
@@ -84,9 +86,9 @@ class TSOptimizer:
             basis_set = ''
 
         if self.dft_solvent is not None and not xtb:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles=30) SCRF=(Solvent={self.dft_solvent}, smd)'
+            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles={self.max_cycles}) SCRF=(Solvent={self.dft_solvent}, smd)'
         else:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles=30)'
+            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles={self.max_cycles})'
 
         remove_files_in_directory(self.g16_dir)
 
