@@ -10,6 +10,10 @@ import copy
 import subprocess
 import shutil
 import random
+from itertools import product
+
+from rdkit import RDLogger
+RDLogger.DisableLog("rdApp.*")
 
 from tstools.utils import write_xyz_file_from_ade_atoms
 
@@ -19,6 +23,9 @@ bohr_ang = 0.52917721090380
 
 xtb = ade.methods.XTB()
 
+metal_list = ['Al', 'Sb', 'Ag', 'As', 'Ba', 'Be', 'Bi', 'Cd', 'Ca', 'Cr', 'Co', 'Cu', 'Au', 'Fe', 
+              'Pb', 'Mg', 'Mn', 'Hg', 'Mo', 'Ni', 'Pd', 'Pt', 'K', 'Rh', 'Rb', 'Ru', 'Sc', 'Ag', 
+              'Na', 'Sr', 'Ta', 'Tl', 'Th', 'Ti', 'U', 'V', 'Y', 'Zn', 'Zr']
 
 class PathGenerator:
     # Constants
@@ -86,6 +93,8 @@ class PathGenerator:
         self.owning_dict_rsmiles = get_owning_mol_dict(reactant_smiles)
         self.owning_dict_psmiles = get_owning_mol_dict(product_smiles)
 
+        self.reaction_is_organometallic = self.check_if_reaction_organometallic()
+
         self.formation_constraints = self.get_optimal_distances()
 
         self.stereo_correct_conformer_name = self.get_stereo_correct_conformer_name(n_conf)
@@ -117,7 +126,7 @@ class PathGenerator:
                 else:
                     if not (self.endpoint_is_product(atoms, coords) and self.beginpoint_is_reactant(atoms, coords)):
                         # Update the stereo-correct conformer if failure
-                        print(f'Incorrect product formed for {self.rxn_id}')
+                        print(f'Incorrect reactant/product formed for {self.rxn_id}')
                         return None, None, None
                     else:
                         path_xyz_files = get_path_xyz_files(atoms, coords, fc)
@@ -261,13 +270,10 @@ class PathGenerator:
         str: Path to the optimized reactive complex XYZ file.
         """
         formation_constraints_stretched = self.get_formation_constraints_stretched()
-
         ade_mol_optimized = ade.Molecule(f'{self.stereo_correct_conformer_name}.xyz', solvent_name=self.solvent, charge=self.charge)
-
         ade_mol_optimized.constraints.update(formation_constraints_stretched)
 
         xtb.force_constant = fc
-
         ade_mol_optimized.optimise(method=xtb)
 
         write_xyz_file_from_ade_atoms(ade_mol_optimized.atoms, f'{self.stereo_correct_conformer_name}_opt.xyz')
@@ -377,7 +383,8 @@ class PathGenerator:
     
     def get_optimal_distances(self):
         """
-        Calculate optimal distances for formed bonds in the product.
+        Calculate optimal distances for formed bonds in the product 
+        (add additional distance constraints if organometallic system).
 
         Returns:
         dict: Dictionary of optimal distances for formed bonds.
@@ -385,42 +392,127 @@ class PathGenerator:
         optimal_distances = {}
         product_molecules = [Chem.MolFromSmiles(smi, ps) for smi in self.product_smiles.split('.')]
         formed_bonds = self.formed_bonds
-        owning_mol_dict = self.owning_dict_psmiles
+
+        atoms_involved_in_formed_bonds = []
 
         for bond in formed_bonds:
             atom_i = int(bond[0])
             atom_j = int(bond[1])
+
             idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
 
-            if owning_mol_dict[atom_i] == owning_mol_dict[atom_j]:
-                mol = copy.deepcopy(product_molecules[owning_mol_dict[atom_i]])
-            else:
-                raise KeyError("Atoms in the bond belong to different molecules.")
-
-            mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol.GetAtoms()}
-            [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
-
-            # Detour needed to avoid reordering of the atoms by autodE
-            get_conformer(mol)
-            write_xyz_file_from_mol(mol, 'tmp.xyz')
-
-            charge = Chem.GetFormalCharge(mol)
-
-            if self.solvent is not None:
-                ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=self.solvent)
-            else:
-                ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
-
-            ade_mol.conformers = [conf_gen.get_simanl_conformer(ade_mol)]
-
-            ade_mol.conformers[0].optimise(method=xtb)
-            dist_matrix = distance_matrix(ade_mol.conformers[0].coordinates, ade_mol.conformers[0].coordinates)
-            current_bond_length = dist_matrix[mol_dict[atom_i], mol_dict[atom_j]]
-
+            mol, mol_dict = self.get_mol_and_mol_dict(atom_i, atom_j, product_molecules)
+            current_bond_length = self.obtain_current_distance(mol, mol_dict, atom_i, atom_j)
+ 
             optimal_distances[idx1, idx2] = current_bond_length
+
+            # for metal-containing bonds, add the atoms that involve main group elements to the atoms_involved_in_formed_bonds list
+            if mol.GetAtomWithIdx(mol_dict[atom_i]).GetSymbol() not in metal_list and \
+                  mol.GetAtomWithIdx(mol_dict[atom_j]).GetSymbol() in metal_list:
+                atoms_involved_in_formed_bonds.append(atom_i)
+            if mol.GetAtomWithIdx(mol_dict[atom_i]).GetSymbol() in metal_list and \
+                  mol.GetAtomWithIdx(mol_dict[atom_j]).GetSymbol() not in metal_list:
+                atoms_involved_in_formed_bonds.append(atom_j)
+
+        if self.reaction_is_organometallic == True:
+            for atom_i, atom_j in list(product(atoms_involved_in_formed_bonds, repeat=2)):
+                if (min(atom_i, atom_j), max(atom_i, atom_j)) in self.broken_bonds:
+                    idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
+                    mol, mol_dict = self.get_mol_and_mol_dict(atom_i, atom_j, product_molecules)
+                    current_distance = self.obtain_current_distance(mol, mol_dict, atom_i, atom_j)
+                    optimal_distances[min(idx1, idx2), max(idx1, idx2)] = current_distance
+                    break
+                else:
+                    continue
 
         return optimal_distances
     
+    def get_mol_and_mol_dict(self, atom_i, atom_j, product_molecules):
+        """
+        Retrieve the molecule containing atoms 'atom_i' and 'atom_j' and create a dictionary
+        mapping atom map numbers to atom indices in this molecule.
+
+        Parameters:
+        - atom_i (int): Index of the first atom in the bond.
+        - atom_j (int): Index of the second atom in the bond.
+        - product_molecules (dict): Dictionary mapping atom indices to corresponding molecules.
+
+        Returns:
+        - mol (rdkit.Chem.Mol): A deep copy of the molecule containing 'atom_i' and 'atom_j'.
+        - mol_dict (dict): A dictionary mapping atom map numbers to atom indices in 'mol'.
+
+        Raises:
+        - KeyError: If atoms 'atom_i' and 'atom_j' belong to different molecules.
+        """
+        if self.owning_dict_psmiles[atom_i] == self.owning_dict_psmiles[atom_j]:
+                mol = copy.deepcopy(product_molecules[self.owning_dict_psmiles[atom_i]])
+        else:
+            raise KeyError("Atoms in the bond belong to different molecules.")
+
+        mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol.GetAtoms()}
+        
+        return mol, mol_dict
+    
+    def obtain_current_distance(self, mol, mol_dict, atom_i, atom_j):
+        """
+        Calculate the current distance between two atoms in the molecule.
+
+        Parameters:
+        - mol (rdkit.Chem.Mol): The molecule containing the atoms.
+        - mol_dict (dict): A dictionary mapping atom map numbers to atom indices in 'mol'.
+        - atom_i (int): Index of the first atom.
+        - atom_j (int): Index of the second atom.
+
+        Returns:
+        - current_distance (float): The distance between the specified atoms in the molecule.
+
+        Notes:
+        - The function internally uses the obtain_dist_matrix method to compute the distance matrix.
+        """  
+        dist_matrix = self.obtain_dist_matrix(mol)
+        current_distance = dist_matrix[mol_dict[atom_i], mol_dict[atom_j]]
+
+        return current_distance
+
+
+    def obtain_dist_matrix(self, mol):
+        """
+        Obtain the distance matrix for the atoms in the molecule.
+
+        Parameters:
+        - mol (rdkit.Chem.Mol): The molecule for which the distance matrix is to be calculated.
+
+        Returns:
+        - dist_matrix (numpy.ndarray): The distance matrix representing pairwise distances between atoms.
+
+        Notes:
+        - The function modifies the atom map numbers in the molecule to ensure correct processing.
+        - It temporarily writes a temporary XYZ file to avoid reordering of atoms by autodE.
+        - The distance matrix is calculated using the autodE library.
+
+        Raises:
+        - Any exceptions raised during the optimization process using autodE.
+        """
+        [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
+
+        # Detour needed to avoid reordering of the atoms by autodE
+        get_conformer(mol)
+        write_xyz_file_from_mol(mol, 'tmp.xyz')
+
+        charge = Chem.GetFormalCharge(mol)
+
+        if self.solvent is not None:
+            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=self.solvent)
+        else:
+            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
+
+        ade_mol.conformers = [conf_gen.get_simanl_conformer(ade_mol)]
+
+        ade_mol.conformers[0].optimise(method=xtb)
+        dist_matrix = distance_matrix(ade_mol.conformers[0].coordinates, ade_mol.conformers[0].coordinates)
+    
+        return dist_matrix
+
     def save_rp_geometries(self, final_atoms, final_coords):
         """
         Save reactant and product geometries to XYZ files.
@@ -451,7 +543,13 @@ class PathGenerator:
         write_xyz_file_from_atoms_and_coords(final_atoms[0], final_coords[0], 'reactant_geometry.xyz')
         ade_mol_r = ade.Molecule('reactant_geometry.xyz', name='reactant_geometry', charge=self.charge)
 
-        return set(ade_mol_r.graph.edges) == set(reactant_bonds)
+        # you need to treat organometallic reactions differently because non-bonded atoms may be close 
+        # enough for distance based bond assignment to be triggered
+        if not self.reaction_is_organometallic:
+            return set(ade_mol_r.graph.edges) == set(reactant_bonds)
+        else:
+            return set(ade_mol_r.graph.edges).issubset(set(reactant_bonds))
+        
 
     def endpoint_is_product(self, final_atoms, final_coords):
         """
@@ -469,10 +567,36 @@ class PathGenerator:
         write_xyz_file_from_atoms_and_coords(final_atoms[-1], final_coords[-1], 'products_geometry.xyz')
         ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge)
 
-        return set(ade_mol_p.graph.edges) == set(product_bonds)
+        # you cannot do this check for organometallic reactions because non-bonded atoms may be close 
+        # enough for distance based bond assignment to be triggered
+        if not self.reaction_is_organometallic:
+            return set(ade_mol_p.graph.edges) == set(product_bonds)
+        else:
+            return set(ade_mol_p.graph.edges).issubset(set(product_bonds))
     
+    def check_if_reaction_organometallic(self):
+        """
+        Check if the reactant molecule contains any organometallic atoms.
 
-def get_owning_mol_dict(reaction_smiles):
+        Returns:
+        - bool: True if organometallic atoms are present, False otherwise.
+
+        Notes:
+        - The function examines the atomic symbols of atoms in the reactant molecule.
+        - It checks if any of the symbols match those in the 'metal_list'.
+        """
+        symbol_list = [atom.GetSymbol() for atom in self.reactant_rdkit_mol.GetAtoms()]
+
+        for symbol in symbol_list:
+            if symbol in metal_list:
+                return True
+            else:
+                continue
+        
+        return False
+
+
+def get_owning_mol_dict(smiles):
     """
     Create a dictionary mapping atom map numbers to the index of the molecule to which they belong.
 
@@ -482,10 +606,10 @@ def get_owning_mol_dict(reaction_smiles):
     Returns:
     dict: A dictionary where keys are atom map numbers and values are the corresponding molecule indices.
     """
-    reactant_molecules = [Chem.MolFromSmiles(smi, ps) for smi in reaction_smiles.split('.')]
+    molecules = [Chem.MolFromSmiles(smi, ps) for smi in smiles.split('.')]
     owning_mol_dict = {}
 
-    for mol_index, mol in enumerate(reactant_molecules):
+    for mol_index, mol in enumerate(molecules):
         for atom in mol.GetAtoms():
             owning_mol_dict[atom.GetAtomMapNum()] = mol_index
 
@@ -662,7 +786,7 @@ def get_path_xyz_files(atoms, coords, force_constant):
         filename = write_xyz_file_from_atoms_and_coords(
             atoms[i],
             coords[i],
-                f'{folder_name}/path_{force_constant}_{i}.xyz'
+                f'{folder_name}/path_{force_constant:.4}_{i}.xyz'
             )
         path_xyz_files.append(filename)  
 
