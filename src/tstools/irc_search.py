@@ -288,9 +288,12 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
 
     for rel_tolerance in [0.3, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]:
         forward_mol, reverse_mol, reactant_mol, product_mol = update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol)
-        if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges):
+        if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges) \
+            and set(forward_mol.graph.edges) != set(reverse_mol.graph.edges):
+            #import pdb; pdb.set_trace()
             return True
-        elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges): 
+        elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges) \
+            and set(forward_mol.graph.edges) != set(reverse_mol.graph.edges): 
             return True
         else:
             continue
@@ -366,10 +369,10 @@ if __name__ == '__main__':
     #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
     # optimize_final_point_irc('lol/ts_guess_4_irc_forward.xyz', 0)
     reaction_correct = compare_molecules_irc(
-        '/Users/thijsstuyver/Desktop/rp_geometries/ts_guess_1_irc_forward.xyz', 
-        '/Users/thijsstuyver/Desktop/rp_geometries/ts_guess_1_irc_reverse.xyz',
-        '/Users/thijsstuyver/Desktop/rp_geometries/reactants_geometry.xyz', 
-        '/Users/thijsstuyver/Desktop/rp_geometries/products_geometry.xyz')
+        '/Users/thijsstuyver/Desktop/reaction_R8/g16_dir/ts_guess_2_irc_forward.xyz', 
+        '/Users/thijsstuyver/Desktop/reaction_R8/g16_dir/ts_guess_2_irc_reverse.xyz',
+        '/Users/thijsstuyver/Desktop/reaction_R8/rp_geometries/reactants_geometry.xyz', 
+        '/Users/thijsstuyver/Desktop/reaction_R8/rp_geometries/products_geometry.xyz')
     print(reaction_correct)
     #print(reaction_correct)
     #extract_transition_state_geometry('logs/ts_guess_0.log', 'logs/test.xyz')
