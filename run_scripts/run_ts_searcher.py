@@ -73,6 +73,7 @@ def optimize_individual_ts(ts_optimizer):
 
     return None
 
+
 def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent,
                              reactive_complex_factor_list_intermolecular,
                              reactive_complex_factor_list_intramolecular, freq_cut_off):

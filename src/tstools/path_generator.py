@@ -462,7 +462,7 @@ class PathGenerator:
             for atom_i, atom_j in list(product(atoms_involved_in_formed_bonds, repeat=2)):
                 if (min(atom_i, atom_j), max(atom_i, atom_j)) in self.broken_bonds:
                     idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
-                    mol, mol_dict = self.get_mol_and_mol_dict(atom_i, atom_j, product_molecules, product_smiles)
+                    mol, mol_dict, smiles = self.get_mol_and_mol_dict(atom_i, atom_j, product_molecules, product_smiles)
                     current_distance = self.obtain_current_distance(mol, mol_dict, smiles, atom_i, atom_j)
                     optimal_distances[min(idx1, idx2), max(idx1, idx2)] = current_distance
                     break
