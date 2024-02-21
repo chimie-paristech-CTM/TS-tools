@@ -290,7 +290,6 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
         forward_mol, reverse_mol, reactant_mol, product_mol = update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol)
         if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges) \
             and set(forward_mol.graph.edges) != set(reverse_mol.graph.edges):
-            #import pdb; pdb.set_trace()
             return True
         elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges) \
             and set(forward_mol.graph.edges) != set(reverse_mol.graph.edges): 
