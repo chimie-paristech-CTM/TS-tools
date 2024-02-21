@@ -240,6 +240,8 @@ class PathGenerator:
         stereochemistry_smiles = find_stereocenters(self.reactant_rdkit_mol)
         # only consider defined smiles stereocenters!
         stereo_elements_to_consider = {str(d['position']) for d in stereochemistry_smiles}
+        # convert stereo_elements in strings, so that you can later on convert list into set
+        stereochemistry_smiles = [str(d) for d in stereochemistry_smiles]
 
         ade_mol = ade.Molecule(f'input_reactants.xyz', charge=self.charge)
 
@@ -261,9 +263,9 @@ class PathGenerator:
             conformer = Conformer(name=f"conformer_reactants_init", atoms=atoms, charge=self.charge, dist_consts=formation_constraints_stretched)
             write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
             stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.reactant_smiles)
-            stereochemistry_conformer = [d for d in stereochemistry_conformer if str(d['position']) in stereo_elements_to_consider]
+            stereochemistry_conformer = [str(d) for d in stereochemistry_conformer if str(d['position']) in stereo_elements_to_consider]
 
-            if stereochemistry_smiles == stereochemistry_conformer:
+            if set(stereochemistry_smiles) == set(stereochemistry_conformer):
                 return conformer.name
 
         # print that there is an error with the stereochemistry only when you do a full search, i.e., n_conf > 1
@@ -594,7 +596,6 @@ class PathGenerator:
         else:
             return set(ade_mol_r.graph.edges).issubset(set(reactant_bonds))
         
-
     def endpoint_is_product(self, final_atoms, final_coords):
         """
         Check if the final geometry corresponds to the product.
