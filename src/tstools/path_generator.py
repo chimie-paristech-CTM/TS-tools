@@ -138,6 +138,7 @@ class PathGenerator:
                         # If third time incorrect begin-/endpoint is reached, abort
                         if i > 2:
                             print(f'Incorrect reactant/product formed for {self.rxn_id}')
+                            path_xyz_files = get_path_xyz_files(atoms, coords, fc)
                             return None, None, None
                         else:
                             i += 1
@@ -234,7 +235,11 @@ class PathGenerator:
         Returns:
         str or None: The name of the conformer or None if not found.
         """
-        formation_constraints_stretched = self.get_formation_constraints_stretched()
+        if self.reactive_complex_factor > 0.01:
+            formation_constraints_stretched = self.get_formation_constraints_stretched()
+        else:
+            formation_constraints_stretched = {}
+
         get_conformer_with_ade(self.reactant_smiles, self.reactant_rdkit_mol)
     
         stereochemistry_smiles = find_stereocenters(self.reactant_rdkit_mol)
@@ -284,7 +289,11 @@ class PathGenerator:
         Returns:
         str: Path to the optimized reactive complex XYZ file.
         """
-        formation_constraints_stretched = self.get_formation_constraints_stretched()
+        if self.reactive_complex_factor > 0.01:
+            formation_constraints_stretched = self.get_formation_constraints_stretched()
+        else:
+            formation_constraints_stretched = {}
+
         self.optimize_reactive_complex(formation_constraints_stretched, fc)
 
         return f'{self.stereo_correct_conformer_name}_opt.xyz'
@@ -542,9 +551,7 @@ class PathGenerator:
         - Any exceptions raised during the optimization process using autodE.
         """
         [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
-
         get_conformer_with_ade(smiles, mol, output_file_name='tmp.xyz')
-
         charge = Chem.GetFormalCharge(mol)
 
         if self.solvent is not None:
@@ -553,7 +560,6 @@ class PathGenerator:
             ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
 
         ade_mol.conformers = [conf_gen.get_simanl_conformer(ade_mol)]
-
         ade_mol.conformers[0].optimise(method=xtb)
         dist_matrix = distance_matrix(ade_mol.conformers[0].coordinates, ade_mol.conformers[0].coordinates)
     
@@ -926,7 +932,7 @@ def get_conformer_with_ade(smiles, mol, output_file_name='input_reactants.xyz'):
 
     for i, smi in enumerate(smiles.split('.')):
         ade_tmp_mol = ModifiedMolecule(name=f'tmp_{i}', smiles=smi)
-        # just to ensure that autodE will later on generate a rasonable geometry from scratch
+        # just to ensure that autodE will later on generate a reasonable geometry from scratch
         if '.' in smiles:
             for atom in ade_tmp_mol.atoms:
                 atom.coord = np.array([0.0, 0.0, 0.0])
