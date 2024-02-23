@@ -18,7 +18,7 @@ def get_args():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('--reactive-complex_factors-intra', nargs='+', type=float,
-                        default=[1.2, 1.3, 1.8])
+                        default=[0, 1.2, 1.3, 1.8])
     parser.add_argument('--reactive-complex-factors-inter', nargs='+', type=float, 
                         default=[2.5, 1.8, 2.8, 1.3])
     parser.add_argument('--freq-cut-off', action='store', type=int, default=150)
@@ -33,6 +33,7 @@ def get_args():
     parser.add_argument('--proc', action='store', type=int, default=8)
     parser.add_argument('--functional', action='store', type=str, default='UB3LYP')
     parser.add_argument('--basis-set', action='store', type=str, default='6-31G**')
+    parser.add_argument('--max-cycles', action='store', type=int, default=30)
 
     args = parser.parse_args()
 
@@ -89,7 +90,7 @@ def optimize_individual_ts(ts_optimizer):
 def obtain_transition_states(target_dir, reaction_list, xtb_external_path, xtb_solvent, dft_solvent,
                              reactive_complex_factor_list_intermolecular,
                              reactive_complex_factor_list_intramolecular, freq_cut_off,
-                             mem='16GB', proc=8):
+                             mem='16GB', proc=8, max_cycles=30):
     """
     Obtain transition states for a list of reactions.
 
@@ -104,6 +105,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, xtb_s
     - freq_cut_off (int): Frequency cutoff.
     - mem (str, optional): Amount of memory to allocate for the calculations (default is '16GB').
     - proc (int, optional): Number of processor cores to use for the calculations (default is 8).
+    - max_cycles (int, optional): Maximal number of cycles in TS geometry search (default is 30).
 
     Returns:
     - list: List of successful reactions.
@@ -116,7 +118,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, xtb_s
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path,
                                              xtb_solvent, dft_solvent, reactive_complex_factor_list_intermolecular,
                                              reactive_complex_factor_list_intramolecular, freq_cut_off,
-                                             mem=mem, proc=proc))
+                                             mem=mem, proc=proc, max_cycles=max_cycles))
 
     print(f'{len(ts_optimizer_list)} reactions to process...')
 
@@ -147,7 +149,7 @@ if __name__ == "__main__":
         xtb_external_path, xtb_solvent=args.xtb_solvent, dft_solvent=args.dft_solvent,
         reactive_complex_factor_list_intramolecular=args.reactive_complex_factors_intra, 
         reactive_complex_factor_list_intermolecular=args.reactive_complex_factors_inter, 
-        freq_cut_off=args.freq_cut_off, mem=args.mem, proc=args.proc)
+        freq_cut_off=args.freq_cut_off, mem=args.mem, proc=args.proc, max_cycles=args.max_cycles)
     
     # print final statistics about the run
     print_statistics(successful_reactions, start_time)

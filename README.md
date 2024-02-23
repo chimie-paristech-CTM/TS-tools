@@ -37,7 +37,7 @@ where the ’input-file’ command line option corresponds to the location of th
 
 Additional options can also be provided:
 
-1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions.
+1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions. To disable the preorganization of the reactant complex towards the product geometry, set this value to 0. In this case, no distance constraints along the bonds being formed are added, i.e., the molecule is optimized in an unbiased manner.
 2. '--reactive-complex-factors-inter': Specifies a list of floating-point numbers representing reactive complex factors for inter-molecular interactions.
 3. '--solvent': Specifies the name of the solvent (needs to be supported in xTB, e.g., 'water')
 4. '--freq-cut-off': Specifies the imaginary frequency cut-off used during filtering of plausible starting points for transition state guess optimization.
@@ -81,7 +81,7 @@ Note that this script will be a lot slower than xTB optimization of TSs, and sho
 
 Additional options can also be provided:
 
-1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions.
+1. '--reactive-complex-factors-intra': Specifies a list of floating-point numbers representing reactive complex factors for intra-molecular interactions. To disable the preorganization of the reactant complex towards the product geometry, set this value to 0. In this case, no distance constraints along the bonds being formed are added, i.e., the molecule is optimized in an unbiased manner.
 2. '--reactive-complex-factors-inter': Specifies a list of floating-point numbers representing reactive complex factors for inter-molecular interactions.
 3. '--solvent': Specifies the name of the solvent to be used in both the xTB and DFT calculations
 4. '--xtb_solvent': Specifies the name of the solvent to be used in the xTB calculations (only needed when universal 'solvent' keyword is not specified)
@@ -93,6 +93,7 @@ directory with the ’final_’ prefix.
 9. '--proc': Specifies the number of processors requested in the Gaussian16 .com files (default is 8)
 10. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
 11. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G**')
+12. '--max-cycles': Maximal number of cycles in TS geometry search (default is 30)
 
 Upon execution of this script, work and output directories are set up in the same manner as for the xTB script (respectively named 'work_dir_dft' and 'final_work_dir_dft' by default).
 
@@ -127,4 +128,3 @@ Furthermore, since the workflow makes use of autodE at several instances, also c
   journal = {Angewandte Chemie International Edition}
 }
 ```
-

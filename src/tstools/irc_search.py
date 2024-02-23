@@ -277,16 +277,22 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
     optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent)
     optimize_final_point_irc(reverse_xyz, charge, multiplicity, solvent)
     # then take final geometry and do actual comparison
-    forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge)
-    reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge)
-    reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge)
-    product_mol = ade.Molecule(product_xyz, name='product', charge=charge)
+    forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge, mult=multiplicity)
+    reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge, mult=multiplicity)
+    reactant_mol = ade.Molecule(reactant_xyz, name='reactant', charge=charge, mult=multiplicity)
+    product_mol = ade.Molecule(product_xyz, name='product', charge=charge, mult=multiplicity)
 
-    for rel_tolerance in [0.3, 0.25, 0.20, 0.15, 0.10]:
+    # if no bond change between reactant and product, abort
+    if set(reactant_mol.graph.edges) == set(product_mol.graph.edges):
+        return False
+
+    for rel_tolerance in [0.3, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]:
         forward_mol, reverse_mol, reactant_mol, product_mol = update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mol, product_mol)
-        if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges):
+        if set(forward_mol.graph.edges) == set(reactant_mol.graph.edges) and set(reverse_mol.graph.edges) == set(product_mol.graph.edges) \
+            and set(forward_mol.graph.edges) != set(reverse_mol.graph.edges):
             return True
-        elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges): 
+        elif set(forward_mol.graph.edges) == set(product_mol.graph.edges) and set(reverse_mol.graph.edges) == set(reactant_mol.graph.edges) \
+            and set(forward_mol.graph.edges) != set(reverse_mol.graph.edges): 
             return True
         else:
             continue
@@ -361,11 +367,11 @@ if __name__ == '__main__':
     #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
     #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
     # optimize_final_point_irc('lol/ts_guess_4_irc_forward.xyz', 0)
-    #reaction_correct = compare_molecules_irc('/Users/thijsstuyver/Desktop/reaction_profile_generator/test_rahm_water/reaction_R2/g16_dir/ts_guess_0_irc_forward.xyz', 
-    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/test_rahm_water/reaction_R2/g16_dir/ts_guess_0_irc_reverse.xyz',
-    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/reactants_geometry.xyz', 
-    #                      '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/products_geometry.xyz')
+    reaction_correct = compare_molecules_irc(
+        '/Users/thijsstuyver/Desktop/reaction_R8/g16_dir/ts_guess_2_irc_forward.xyz', 
+        '/Users/thijsstuyver/Desktop/reaction_R8/g16_dir/ts_guess_2_irc_reverse.xyz',
+        '/Users/thijsstuyver/Desktop/reaction_R8/rp_geometries/reactants_geometry.xyz', 
+        '/Users/thijsstuyver/Desktop/reaction_R8/rp_geometries/products_geometry.xyz')
+    print(reaction_correct)
     #print(reaction_correct)
-    extract_transition_state_geometry('logs/ts_guess_0.log', 'logs/test.xyz')
-
-
+    #extract_transition_state_geometry('logs/ts_guess_0.log', 'logs/test.xyz')
