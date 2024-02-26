@@ -23,7 +23,10 @@ Additionally, Gaussian16 needs to be available. In HPC environments, this can ty
 module load gaussian/g16_C01
 ```
 
-Finally, the xTB path in the external xtb script needs to be adapted to the local settings (L13 in 'xtb/external_script/xtb_external.py')
+Finally, the path to the xTB executable, used in 'xtb/external_script/xtb_external.py', needs to be set through the environment variable `XTB_PATH`, e.g.,
+```
+export XTB_PATH=/path/to/xtb
+```
 
 ### Generating TS guesses at xTB level-of-theory
 

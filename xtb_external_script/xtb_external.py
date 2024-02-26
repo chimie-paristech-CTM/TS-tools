@@ -195,7 +195,6 @@ def clean_dir():
 
 if __name__ == "__main__":
     
-    print("Running XTB via Gaussian...")
     solvent = None
 
     if len(sys.argv[1]) > 7: # given ekstra kwd
