@@ -1,4 +1,4 @@
-#!/home/thijs/miniconda3/envs/xyz2mol/bin/python3.11
+#!/usr/bin/env python
 # n.b. chmod 755
 
 # TODO: Give ekstra kwd through gaussian - use to define solvent.
@@ -10,7 +10,9 @@ import numpy as np
 
 from rdkit import Chem
 
-__XTB_PATH__ = "/opt/xtb/6.3.2"
+__XTB_PATH__ = os.environ.get("XTB_PATH", None)
+if __XTB_PATH__ is None:
+    raise RuntimeError("Path to xtb executable not set via environment variable 'XTB_PATH'.")
 
 
 def parse_ifile(ifile):
@@ -192,7 +194,6 @@ def clean_dir():
 
 
 if __name__ == "__main__":
-    
     
     solvent = None
 
