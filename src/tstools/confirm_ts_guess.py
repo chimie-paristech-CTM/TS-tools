@@ -10,7 +10,7 @@ import subprocess
 xtb = ade.methods.XTB()
 
 
-def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=None):
+def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, multiplicity=1, solvent=None):
     """
     Validate the transition state (TS) guess file based on frequency and displacement information.
 
@@ -19,6 +19,7 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=N
     - path (str): Path to the relevant data.
     - freq_cut_off (int, optional): Frequency cutoff for validation. Defaults to 150.
     - charge (int, optional): Charge of the system. Defaults to 0.
+    - multiplicity (int, optional): Multiplicity of the system. Defaults to 1.
     - solvent (str, optional): Solvent information. Defaults to None.
 
     Returns:
@@ -26,7 +27,7 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=N
       and its frequency; otherwise, returns None for both.
     """
     # get all information about main imaginary mode
-    freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, solvent)
+    freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, multiplicity, solvent)
 
     if freq < -freq_cut_off and main_displacement_is_active:
         return ts_guess_file, freq
@@ -34,7 +35,7 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, solvent=N
         return None, None
 
 
-def extract_info_ts_file(ts_file, path, charge, solvent):
+def extract_info_ts_file(ts_file, path, charge, multiplicity, solvent):
     """
     Extract information related to a transition state (TS) from a directory.
 
@@ -42,7 +43,8 @@ def extract_info_ts_file(ts_file, path, charge, solvent):
         ts_file (str): The directory containing TS files.
         path (str): The path containing the reactant and product xyz-files.
         charge (int): The charge of the system.
-        cut_off (float, optional): A cutoff value to filter bond displacements. Defaults to 0.5.
+        multiplicity (int): The multiplicity of the system.
+        solvent (str): The name of the solvent.
 
     Returns:
         tuple: A tuple containing the following information:
@@ -64,7 +66,7 @@ def extract_info_ts_file(ts_file, path, charge, solvent):
     """
     # Obtain reactant, product, and transition state molecules
     reactant_file, product_file = get_xyzs(path)
-    reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_file, charge)   
+    reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_file, charge, multiplicity)   
 
     # Compute the displacement along the imaginary mode
     _ = get_negative_frequencies(ts_file, charge, solvent)
@@ -198,7 +200,7 @@ def displaced_species_along_mode(
     return disp_species
 
 
-def get_ade_molecules(reactant_file, product_file, ts_guess_file, charge):
+def get_ade_molecules(reactant_file, product_file, ts_guess_file, charge, multiplicity):
     """
     Load the reactant, product, and transition state molecules.
 
@@ -212,9 +214,9 @@ def get_ade_molecules(reactant_file, product_file, ts_guess_file, charge):
         ade.Molecule: Product molecule.
         ade.Molecule: Transition state molecule.
     """
-    reactant = ade.Molecule(reactant_file, charge=charge)
-    product = ade.Molecule(product_file, charge=charge)
-    ts = ade.Molecule(ts_guess_file, charge=charge)
+    reactant = ade.Molecule(reactant_file, charge=charge, mult=multiplicity)
+    product = ade.Molecule(product_file, charge=charge, mult=multiplicity)
+    ts = ade.Molecule(ts_guess_file, charge=charge, mult=multiplicity)
 
     return reactant, product, ts
 
