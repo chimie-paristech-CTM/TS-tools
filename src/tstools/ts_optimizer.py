@@ -181,20 +181,21 @@ class TSOptimizer:
             energies, potentials, path_xyz_files = path.get_path()
             if energies is not None:
                 true_energies = list(np.array(energies) - np.array(potentials))
-                guesses_list = self.determine_and_filter_local_maxima(true_energies, path_xyz_files, path.charge)
+                guesses_list = self.determine_and_filter_local_maxima(true_energies, path_xyz_files, path.charge, path.multiplicity, path.solvent)
                 if len(guesses_list) > 0:
                     return guesses_list
 
         return None
 
-    def determine_and_filter_local_maxima(self, true_energies, path_xyz_files, charge):
+    def determine_and_filter_local_maxima(self, true_energies, path_xyz_files, charge, multiplicity, solvent):
         """
         Determine and filter local maxima in the path.
 
         Parameters:
         - true_energies (list): List of true energy values.
         - path_xyz_files (list): List of path XYZ files.
-        - charge: Charge information.
+        - charge (int): Charge information.
+        - multiplicity (int): Multiplicity information.
 
         Returns:
         - list: List of ranked transition state guess files based on energy.
@@ -206,7 +207,7 @@ class TSOptimizer:
         ts_guess_dict = {}
         idx_local_maxima_correct_mode = []
         for index in indices_local_maxima:
-            ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], self.reaction_dir, self.freq_cut_off, charge)
+            ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], self.reaction_dir, self.freq_cut_off, charge, multiplicity, solvent)
             if ts_guess_file is not None:
                 idx_local_maxima_correct_mode.append(index)
                 ts_guess_dict[ts_guess_file] = true_energies[index]

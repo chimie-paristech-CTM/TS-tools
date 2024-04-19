@@ -248,7 +248,7 @@ class PathGenerator:
         # convert stereo_elements in strings, so that you can later on convert list into set
         stereochemistry_smiles = [str(d) for d in stereochemistry_smiles]
 
-        ade_mol = ade.Molecule(f'input_reactants.xyz', charge=self.charge)
+        ade_mol = ade.Molecule(f'input_reactants.xyz', charge=self.charge, mult=self.multiplicity)
 
         for node in ade_mol.graph.nodes:
             ade_mol.graph.nodes[node]['stereo'] = False
@@ -553,11 +553,12 @@ class PathGenerator:
         [atom.SetAtomMapNum(0) for atom in mol.GetAtoms()]
         get_conformer_with_ade(smiles, mol, output_file_name='tmp.xyz')
         charge = Chem.GetFormalCharge(mol)
+        multiplicity = get_multiplicity(mol)
 
         if self.solvent is not None:
-            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, solvent_name=self.solvent)
+            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, mult=multiplicity, solvent_name=self.solvent)
         else:
-            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge)
+            ade_mol = ade.Molecule('tmp.xyz', name='tmp', charge=charge, mult=multiplicity)
 
         ade_mol.conformers = [conf_gen.get_simanl_conformer(ade_mol)]
         ade_mol.conformers[0].optimise(method=xtb)
@@ -593,7 +594,7 @@ class PathGenerator:
         reactant_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2]))
                       for atom1, atom2 in get_bonds(self.reactant_rdkit_mol)]
         write_xyz_file_from_atoms_and_coords(final_atoms[0], final_coords[0], 'reactant_geometry.xyz')
-        ade_mol_r = ade.Molecule('reactant_geometry.xyz', name='reactant_geometry', charge=self.charge)
+        ade_mol_r = ade.Molecule('reactant_geometry.xyz', name='reactant_geometry', charge=self.charge, mult=self.multiplicity)
 
         # you need to treat organometallic reactions differently because non-bonded atoms may be close 
         # enough for distance-based bond assignment to be triggered
@@ -616,7 +617,7 @@ class PathGenerator:
         product_bonds = [(min(self.atom_map_dict[atom1], self.atom_map_dict[atom2]), max(self.atom_map_dict[atom1], self.atom_map_dict[atom2]))
                      for atom1, atom2 in get_bonds(self.product_rdkit_mol)]
         write_xyz_file_from_atoms_and_coords(final_atoms[-1], final_coords[-1], 'products_geometry.xyz')
-        ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge)
+        ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge, mult=self.multiplicity)
 
         # you cannot do this check for organometallic reactions because non-bonded atoms may be close 
         # enough for distance based-bond assignment to be triggered
@@ -645,6 +646,26 @@ class PathGenerator:
                 continue
         
         return False
+    
+def get_multiplicity(mol):
+    """
+    Get the multiplicity of a molecule.
+
+    Returns:
+    - int: multiplicity
+    """
+    charge = Chem.GetFormalCharge(mol)
+    total_electrons = 0
+
+    for atom in mol.GetAtoms():
+        # Add the atomic number
+        total_electrons += atom.GetAtomicNum()
+
+    # subtract the net charge
+    total_electrons -= charge
+    multiplicity = total_electrons % 2 + 1
+
+    return multiplicity
 
 
 def get_owning_mol_dict(smiles):
