@@ -265,5 +265,11 @@ def print_statistics(successful_reactions, start_time):
     print(f'Time taken: {end_time - start_time}')
 
 
+class NotConverged(Exception):
+    def __init__(self, rxn_id):
+        message = f'xTB calculation not converged for {rxn_id}...'
+        super().__init__(message)
+
+
 if __name__ == '__main__':
    write_final_geometry_to_xyz('logs/ts_guess_2.log')
