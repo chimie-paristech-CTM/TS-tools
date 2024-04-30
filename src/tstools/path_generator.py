@@ -17,7 +17,7 @@ from autode.smiles.smiles import init_smiles
 from rdkit import RDLogger
 RDLogger.DisableLog("rdApp.*")
 
-from tstools.utils import write_xyz_file_from_ade_atoms
+from tstools.utils import write_xyz_file_from_ade_atoms, NotConverged
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -317,7 +317,6 @@ class PathGenerator:
             for key, val in formation_constraints_stretched.items():
                 f.write(f'    distance: {key[0] + 1}, {key[1] + 1}, {val}\n')
             f.write('$end\n')
-
         cmd = f'xtb {self.stereo_correct_conformer_name}.xyz --opt --input {xtb_input_path} -v --charge {self.charge} '
 
         if self.solvent is not None:
@@ -332,7 +331,10 @@ class PathGenerator:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f'Error during XTB optimization: {e}')
         
-        os.rename('xtbopt.xyz', f'{self.stereo_correct_conformer_name}_opt.xyz')
+        try:
+            os.rename('xtbopt.xyz', f'{self.stereo_correct_conformer_name}_opt.xyz')
+        except: # xTB calculation didn't converge
+            raise NotConverged(self.rxn_id)
 
     def get_path_for_biased_optimization(self, reactive_complex_xyz_file, force_constant):
         """
@@ -392,7 +394,10 @@ class PathGenerator:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f'Error during XTB optimization: {e}')
 
-        os.rename('xtbopt.log', f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.log')
+        try:
+            os.rename('xtbopt.log', f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.log')
+        except: # xTB calculation didn't converge
+            raise NotConverged(self.rxn_id)
 
         return f'{os.path.splitext(reactive_complex_xyz_file)[0]}_path.log'     
 
