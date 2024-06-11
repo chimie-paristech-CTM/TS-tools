@@ -100,6 +100,32 @@ directory with the ’final_’ prefix.
 
 Upon execution of this script, work and output directories are set up in the same manner as for the xTB script (respectively named 'work_dir_dft' and 'final_work_dir_dft' by default).
 
+### Conformational search with CREST at xTB level-of-theory
+
+Conformational search of each species can be done by running the following command (individual calculations are run in parallel as a single Python ProcessPool):
+
+```
+python run_scripts/run_conformational_search.py [--file data/dft_ts_structures/13_ts.xyz] 
+```
+
+where the ’file’ command line option corresponds to the location of the .xyz-file containing the geometry of the molecular system. CREST needs to be available.
+
+Additional options can also be provided:
+
+1. '--opt-DFT': Subsequently optimization of the 10 conformers with the lowest energy, obtained from CREST to determine the most stable conformer.
+2. '--atomlist': Pairs of atoms to constraint during the conformational search, E.g. transitions states, metal-organic compounds
+3. '--charge': Specifies the charge (default is '0').
+4. '--solvent': Specifies the name of the solvent to be used in both CREST and DFT calculations
+5. '--uhf': Specifies the number of unpaired electron (default is '0')
+6. '--mem': Specifies the memory requested in the Gaussian16 .com files (default is '16GB')
+7. '--proc': Specifies the number of processors requested in both CREST and DFT calculations (default is 8)
+8. '--functional': Specifies the functional to be used for the DFT calculations (default is 'UB3LYP')
+9. '--basis-set': Specifies the basis set to be used for the DFT calculations (default is '6-31G')
+
+Upon execution of this script, a work directory is set up (named '_crest'). For a final optimization, a sub-directory is generated 
+(named '_opt_DFT'). 
+
+
 ### References
 
 If (parts of) this workflow are used as part of a publication, please cite the associated paper:
