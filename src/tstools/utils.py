@@ -119,7 +119,7 @@ def write_final_geometry_to_xyz(log_file_path):
                 xyz_file.write("Final geometry extracted from Gaussian log file\n")
                 for atom_info in final_geometry:
                     xyz_file.write(f"{atom_info['symbol']} {atom_info['x']:.6f} {atom_info['y']:.6f} {atom_info['z']:.6f}\n")
-
+    
     except FileNotFoundError:
         print(f"File not found: {log_file_path}")
     
@@ -269,6 +269,149 @@ class NotConverged(Exception):
     def __init__(self, rxn_id):
         message = f'xTB calculation not converged for {rxn_id}...'
         super().__init__(message)
+
+
+def extract_geom_from_xyz(filename):
+    """
+    Extract geometry from a XYZ file
+
+    Parameters:
+    - filename (str): Path to a XYZ file
+
+    Returns:
+    geom (list): Geometry
+    """
+    
+    with open(filename, 'r') as file:
+        lines = file.readlines()    
+
+    geom = []
+    for line in lines[2:]:
+        if line.isspace():
+            break
+        geom.append(line)
+
+    return geom
+    
+
+def extract_geom_from_crest_ensemble(filename, number):
+    """
+    Extract geometries from a XYZ file with an ensemble of conformers (CREST)
+
+    Parameters:
+    - lines (list): Lines of XYZ file
+    - number (int): How many conformers
+
+    Return:
+    geoms (list): Geometries
+    """
+    
+    with open(filename, 'r') as file:
+        lines = file.readlines()
+
+    geoms = []
+
+    num_atoms = int(lines[0])
+    lines_ind_xyz = num_atoms + 2
+
+    for i in range(number):
+        geom = lines[i*lines_ind_xyz + 2:(i+1)*lines_ind_xyz]
+        geoms.append(geom)
+
+    return geoms
+
+
+def create_input_file_opt_g16(name, geom, charge, multiplicity, mem, proc, extra_commands=None,
+                            modredundant=None, splitter=None, functional='UB3LYP', basis_set='6-31G', solvent=None):
+    """
+    Function to generate input of Gaussian
+    Args:
+        name (str): final name of the input
+        geom (list): list with the coordinates
+        charge (int): charge
+        multiplicity (int): multiplicity
+        mem (str): Specifies the memory requested in the Gaussian16 .com files
+        proc (int): number of CPUs
+        extra_commands (str): add other commands, example: field=M+N
+        modredundant (list): constraints
+        splitter (str): separator for the string
+        functional (str): functional
+        basis_set (str): basis_set
+        solvent (str): solvent
+
+    Return:
+        Create input file for loose opt
+    """
+
+    if not extra_commands:
+        extra_commands = ""
+
+    if modredundant:
+        modredundant_keyword = ', modredundant)'
+    else:
+        modredundant_keyword = ")"
+    
+    if solvent:
+        solvent_keyword = f"scrf=(SMD, solvent={solvent})"
+    else:
+        solvent_keyword = " "
+
+    route_link_opt = f"# {functional} {basis_set} Nosymm {solvent_keyword} {extra_commands} "
+    route_link_opt += f"opt=(tight {modredundant_keyword}\n\n"
+
+    coordinates = []
+
+    for atom in geom:
+        elements = len(atom.split(splitter))
+        if elements == 5:
+            label, _, x, y, z = atom.split(splitter)
+        else:
+            label, x, y, z = atom.split(splitter)
+        coordinates.append(f"{label}  {x}  {y}  {z}")
+
+    with open(f"{name}.com", 'w') as file:
+        
+        file.write(f"%nprocshared={proc}\n")
+        file.write(f"%mem={mem}\n")
+        file.write(f"{route_link_opt}")
+        file.write("opt \n\n")
+        file.write(f"{charge} {multiplicity}\n")
+        for coordinate in coordinates:
+            file.write(f"{coordinate}\n")
+        if modredundant:
+            file.write('\n')
+            for constraint in modredundant:
+                file.write(f"{constraint}\n")
+        file.write("\n\n")
+
+
+def extract_g16_energy(filename):
+    """
+    Extract energy from a Gaussian16 output
+    
+    Parameters:
+    - filename (str): Path to the Gaussian output
+    
+    Returns:
+    - energy (float): Energy
+    """
+    
+    with open(filename, 'r') as file:
+        lines = file.readlines()[::-1]
+    
+    for line in lines:
+        
+        if 'Error termination' in line:
+            return None
+        
+        if line.startswith(' SCF Done'): 
+            energy = float(line.split()[4])
+            break
+
+    return energy
+
+
+
 
 
 if __name__ == '__main__':
