@@ -23,7 +23,12 @@ Additionally, Gaussian16 needs to be available. In HPC environments, this can ty
 module load gaussian/g16_C01
 ```
 
-Finally, the path to the xTB executable, used in 'xtb/external_script/xtb_external.py', needs to be set through the environment variable `XTB_PATH`, e.g.,
+The 'xtb_external_script/xtb_external.py' should be set as executable:
+```
+chmod +x xtb_external_script/xtb_external.py
+```
+
+Finally, the path to the xTB executable, used in 'xtb_external_script/xtb_external.py', needs to be set through the environment variable `XTB_PATH`, e.g.,
 ```
 export XTB_PATH=/path/to/xtb
 ```
