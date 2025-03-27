@@ -34,7 +34,7 @@ class PathGenerator:
     FC_CRUDE_LOWER_BOUND = 0.1
     FC_CRUDE_UPPER_BOUND = 4.0
     FC_CRUDE_INCREMENT = 0.1
-    FC_CRUDE_ATTEMTPS = 5
+    FC_CRUDE_ATTEMPTS = 5
 
     FC_REFINED_LOWER_BOUND = 0.09
     FC_REFINED_UPPER_BOUND = 0.03
@@ -96,6 +96,7 @@ class PathGenerator:
         self.owning_dict_psmiles = get_owning_mol_dict(product_smiles)
 
         self.reaction_is_organometallic = self.check_if_reaction_organometallic()
+        self.reactant_or_product_is_zwitterionic = self.check_for_zwitterions()
 
         self.formation_constraints = self.get_optimal_distances()
 
@@ -138,13 +139,13 @@ class PathGenerator:
                         # If third time incorrect begin-/endpoint is reached, abort
                         if i > 2:
                             print(f'Incorrect reactant/product formed for {self.rxn_id}')
-                            path_xyz_files = get_path_xyz_files(atoms, coords, fc)
+                            path_xyz_files = get_path_xyz_files(atoms, coords, fc, energies, potentials)
                             return None, None, None
                         else:
                             i += 1
                             continue
                     else:
-                        path_xyz_files = get_path_xyz_files(atoms, coords, fc)
+                        path_xyz_files = get_path_xyz_files(atoms, coords, fc, energies, potentials)
                         self.save_rp_geometries(atoms, coords)
                         return energies, potentials, path_xyz_files
 
@@ -161,7 +162,7 @@ class PathGenerator:
             PathGenerator.FC_CRUDE_LOWER_BOUND,
             PathGenerator.FC_CRUDE_UPPER_BOUND,
             PathGenerator.FC_CRUDE_INCREMENT,
-            n_attempts=PathGenerator.FC_CRUDE_ATTEMTPS
+            n_attempts=PathGenerator.FC_CRUDE_ATTEMPTS
         )
 
         if minimal_fc_crude is not None:
@@ -601,9 +602,10 @@ class PathGenerator:
         write_xyz_file_from_atoms_and_coords(final_atoms[0], final_coords[0], 'reactant_geometry.xyz')
         ade_mol_r = ade.Molecule('reactant_geometry.xyz', name='reactant_geometry', charge=self.charge, mult=self.multiplicity)
 
-        # you need to treat organometallic reactions differently because non-bonded atoms may be close 
+        # You need to treat organometallic reactions differently because non-bonded atoms may be close 
         # enough for distance-based bond assignment to be triggered
-        if not self.reaction_is_organometallic:
+        # In case of zwitterions, it is possible that the + and - combine in a bond, which should not be a reason to reject the compound either
+        if not self.reaction_is_organometallic or self.reactant_or_product_is_zwitterionic:
             return set(ade_mol_r.graph.edges) == set(reactant_bonds)
         else:
             return set(ade_mol_r.graph.edges).issubset(set(reactant_bonds))
@@ -624,9 +626,10 @@ class PathGenerator:
         write_xyz_file_from_atoms_and_coords(final_atoms[-1], final_coords[-1], 'products_geometry.xyz')
         ade_mol_p = ade.Molecule('products_geometry.xyz', name='products_geometry', charge=self.charge, mult=self.multiplicity)
 
-        # you cannot do this check for organometallic reactions because non-bonded atoms may be close 
+        # You cannot do this check for organometallic reactions because non-bonded atoms may be close 
         # enough for distance based-bond assignment to be triggered
-        if not self.reaction_is_organometallic:
+        # In case of zwitterions, it is possible that the + and - combine in a bond, which should not be a reason to reject the compound either
+        if not self.reaction_is_organometallic or self.reactant_or_product_is_zwitterionic:
             return set(ade_mol_p.graph.edges) == set(product_bonds)
         else:
             return set(ade_mol_p.graph.edges).issubset(set(product_bonds))
@@ -651,6 +654,27 @@ class PathGenerator:
                 continue
         
         return False
+    
+    def check_for_zwitterions(self):
+        """
+        Checks for the presence of zwitterions in either the reactant or product SMILES strings.
+
+        A zwitterion is a molecule that contains both a positively charged group ('+') and 
+        a negatively charged group ('-') within the same molecule. This function examines the 
+        SMILES representations of the reactants and products to determine if any zwitterions 
+        are present.
+
+        Returns:
+            bool: True if a zwitterion is detected in either the reactant or product SMILES; 
+                False otherwise.
+        """
+        if '+' in self.reactant_smiles and '-' in self.reactant_smiles:
+            return True
+        elif '+' in self.product_smiles and '-' in self.product_smiles:
+            return True
+        else:
+            return False
+        
     
 def get_multiplicity(mol):
     """
@@ -792,7 +816,7 @@ def angstrom_to_bohr(distance_angstrom):
     return distance_angstrom * 1.88973
 
 
-def get_path_xyz_files(atoms, coords, force_constant):
+def get_path_xyz_files(atoms, coords, force_constant, energies, potentials):
     """
     Save a series of XYZ files representing the path along a reaction coordinate.
 
@@ -800,6 +824,8 @@ def get_path_xyz_files(atoms, coords, force_constant):
     atoms (list): List of atom objects for each step in the path.
     coords (list): List of coordinate arrays for each step in the path.
     force_constant (float): The force constant applied to the path.
+    energies (list): List of energies for each step in the path
+    potentials (list): List of potentials for each step in the path
 
     Returns:
     list: List of filenames for the saved XYZ files.
@@ -814,14 +840,16 @@ def get_path_xyz_files(atoms, coords, force_constant):
         filename = write_xyz_file_from_atoms_and_coords(
             atoms[i],
             coords[i],
-                f'{folder_name}/path_{force_constant:.4}_{i}.xyz'
+                f'{folder_name}/path_{force_constant:.4}_{i}.xyz',
+            energies[i],
+            potentials[i]
             )
         path_xyz_files.append(filename)  
 
     return path_xyz_files
 
 
-def write_xyz_file_from_atoms_and_coords(atoms, coords, filename):
+def write_xyz_file_from_atoms_and_coords(atoms, coords, filename, energy=None, potential=None):
     """
     Write an XYZ file from a list of atoms and coordinates.
 
@@ -829,16 +857,23 @@ def write_xyz_file_from_atoms_and_coords(atoms, coords, filename):
         atoms: The list of atom symbols.
         coords: The list of atomic coordinates.
         filename: The name of the XYZ file to write.
+        energy: The energy of the system
+        potential:
 
     Returns:
         str: The name of the written XYZ file.
     """
+
+    if energy and potential:
+        comment_line = f"energy = {energy} Ha  potential = {potential} Ha \n"
+    else:
+        comment_line = "test \n"
     with open(filename, 'w') as f:
         f.write(f'{len(atoms)}\n')
-        f.write("test \n")
+        f.write(comment_line)
         for i, coord in enumerate(coords):
             x, y, z = coord
-            f.write(f"{atoms[i]} {x:.6f} {y:.6f} {z:.6f}\n")
+            f.write(f"{atoms[i]} {x:11.6f} {y:11.6f} {z:11.6f}\n")
     return filename
 
 

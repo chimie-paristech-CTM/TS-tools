@@ -4,9 +4,11 @@ import shutil
 from rdkit import Chem
 
 from tstools.path_generator import PathGenerator
-from tstools.confirm_ts_guess import validate_ts_guess
+from tstools.path_analyzer import PathAnalyzer
 from tstools.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory
 from tstools.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
+from tstools.confirm_ts_guess import validate_ts_guess
+
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -14,11 +16,13 @@ ps.removeHs = False
 class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, xtb_solvent=None, dft_solvent=None,
                  reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
-                 freq_cut_off=150, guess_found=False, mem='2GB', proc=2, max_cycles=30):
+                 freq_cut_off=50, guess_found=False, mem='2GB', proc=2, max_cycles=30, intermediate_check=False,
+                 reaction_dir=None):
         """
         Initialize a TSOptimizer instance.
 
         Parameters:
+
         - rxn_id (int): Reaction ID.
         - reaction_smiles (str): SMILES representation of the reaction.
         - xtb_external_path (str): Path to external xtb executable.
@@ -33,6 +37,8 @@ class TSOptimizer:
         - mem (str, optional): Gaussian memory specification. Defaults to '2GB'.
         - proc (int, optional): Number of processors. Defaults to 2.
         - max_cycles (int, optional): Maximal number of cycles in TS geometry search. Defaults to 30.
+        - intermediate_check (bool, optional): Whether to check for intermediates formed along the path.
+        - reaction_dir (str, optional):  Reaction directory, in case it has been previously created.
         """
         self.rxn_id = rxn_id
         self.reactant_smiles = reaction_smiles.split('>>')[0]
@@ -49,7 +55,10 @@ class TSOptimizer:
 
         self.charge, self.multiplicity = self.get_charge_and_multiplicity()
 
-        self.reaction_dir = self.make_work_dir()
+        if not reaction_dir:
+            self.reaction_dir = self.make_work_dir()
+        else:
+            self.reaction_dir = reaction_dir
 
         self.g16_dir = self.make_sub_dir(sub_dir_name='g16_dir')
         self.rp_geometries_dir = self.make_sub_dir(sub_dir_name='rp_geometries')
@@ -62,6 +71,11 @@ class TSOptimizer:
             self.final_guess_dir = None
 
         self.ts_guess_list = None
+        self.ts_found = False
+        self.barrier_estimate = None
+
+        self.intermediate_check = intermediate_check
+        self.stepwise_reaction_smiles = None
 
     def determine_ts(self, xtb=True, method='UB3LYP', basis_set='6-31G**'):
         """
@@ -71,40 +85,32 @@ class TSOptimizer:
         - xtb (bool, optional): Use external XTB for optimization.
         - method (str, optional): Level of theory for DFT optimization.
         - basis_set (str, optional): Basis set for DFT optimization.
-
-        Returns:
-        - bool: True if transition state is found, False otherwise.
         """
-        if self.ts_guess_list is None:
-            return False
+        if not self.ts_guess_list:
+            return None
 
         if xtb:
-            if self.xtb_solvent is not None:
-                method = f'external="{self.xtb_external_path} alpb={self.xtb_solvent}"'
-            else:
-                method = f'external="{self.xtb_external_path}"'
+            method = f'external="{self.xtb_external_path}{" alpb=" + self.xtb_solvent if self.xtb_solvent else ""}"'
             basis_set = ''
-
-        if self.dft_solvent is not None and not xtb:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles={self.max_cycles}) SCRF=(Solvent={self.dft_solvent}, smd)'
-        else:
-            extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles={self.max_cycles})'
+    
+        extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles={self.max_cycles})'
+        if self.dft_solvent and not xtb:
+            extra_commands += f' SCRF=(Solvent={self.dft_solvent}, smd)'
 
         remove_files_in_directory(self.g16_dir)
 
         for i, guess_file in enumerate(self.ts_guess_list):
             ts_search_inp_file = self.generate_g16_input_ts_opt(
                 i, guess_file, method=method, basis_set=basis_set, extra_commands=extra_commands)
+        
             os.chdir(self.reaction_dir)
             log_file = run_g16_ts_optimization(ts_search_inp_file)
-            success = self.confirm_opt_transition_state(log_file, xtb, method, basis_set)
 
-            if success:
+            if self.confirm_opt_transition_state(log_file, xtb, method, basis_set):
                 xyz_file = f'{os.path.splitext(log_file)[0]}.xyz'
                 self.save_final_ts_guess_files(xyz_file, log_file)
-                return True
-
-        return False
+                self.ts_found = True
+                break
 
     def set_ts_guess_list(self, reactive_complex_factor):
         """
@@ -114,7 +120,8 @@ class TSOptimizer:
         - reactive_complex_factor: Reactive complex factor value.
         """
         path = self.set_up_path_generator(reactive_complex_factor)
-        ts_guess_list = self.obtain_ts_guesses_for_given_reactive_complex_factor(path)[:5]
+        ts_guess_list = self.obtain_ts_guesses_for_given_reactive_complex_factor(path)
+        self.print_active_atoms(path)
 
         if ts_guess_list is not None:
             self.save_ts_guesses(ts_guess_list)
@@ -129,7 +136,6 @@ class TSOptimizer:
         - xyz_file_list (list): List of XYZ file paths for transition state guesses.
         """
         self.ts_guess_list = xyz_file_list
-
 
     def set_up_path_generator(self, reactive_complex_factor, n_conf=100):
         """
@@ -177,46 +183,35 @@ class TSOptimizer:
         Returns:
         - list or None: List of transition state guess files if found, None otherwise.
         """
-        for _ in range(5):
+        for _ in range(1):
+            # first, generate the actual path
             energies, potentials, path_xyz_files = path.get_path()
             if energies is not None:
-                true_energies = list(np.array(energies) - np.array(potentials))
-                guesses_list = self.determine_and_filter_local_maxima(true_energies, path_xyz_files, path.charge, path.multiplicity, path.solvent)
-                if len(guesses_list) > 0:
-                    return guesses_list
+                analyzer = PathAnalyzer(path, energies, potentials, path_xyz_files)
+                # check if the correct bonds are broken and formed along the path
+                if path.reaction_is_organometallic:
+                    reasonable_path = True # with organometallic compounds, bond lengths can vary a lot, so always accept
+                else:
+                    reasonable_path = analyzer.check_if_reactive_path_is_reasonable() 
+                if reasonable_path:
+                    # check if a stable intermediate can be identified along the path
+                    if self.intermediate_check:
+                        intermediate_smiles = analyzer.check_for_potential_intermediates()
+                        if intermediate_smiles is not None: # indicates that the pathway is stepwise
+                            reaction_smiles1, reaction_smiles2 = analyzer.generate_stepwise_reaction_smiles(intermediate_smiles)
+                            self.stepwise_reaction_smiles = [reaction_smiles1, reaction_smiles2]
+                    # if the search has not been broken off by now, you can proceed to the actual selection of guesses
+                    guesses_list = analyzer.select_ts_guesses(
+                        self.reaction_dir, self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent)
+                    if len(guesses_list) > 0:
+                        self.barrier_estimate = analyzer.barrier_estimate
+                        print(f'Barrier estimate for reaction {path.rxn_id} with reactive complex factor {path.reactive_complex_factor}: {self.barrier_estimate} kcal/mol')
+                        return guesses_list
+                else:
+                    print(f'Incorrect path encountered for {path.rxn_id}!')
+                    break
 
-        return None
-
-    def determine_and_filter_local_maxima(self, true_energies, path_xyz_files, charge, multiplicity, solvent):
-        """
-        Determine and filter local maxima in the path.
-
-        Parameters:
-        - true_energies (list): List of true energy values.
-        - path_xyz_files (list): List of path XYZ files.
-        - charge (int): Charge information.
-        - multiplicity (int): Multiplicity information.
-
-        Returns:
-        - list: List of ranked transition state guess files based on energy.
-        """
-        # Find local maxima in path
-        indices_local_maxima = find_local_max_indices(true_energies)
-
-        # Validate the local maxima and store their energy values
-        ts_guess_dict = {}
-        idx_local_maxima_correct_mode = []
-        for index in indices_local_maxima:
-            ts_guess_file, _ = validate_ts_guess(path_xyz_files[index], self.reaction_dir, self.freq_cut_off, charge, multiplicity, solvent)
-            if ts_guess_file is not None:
-                idx_local_maxima_correct_mode.append(index)
-                ts_guess_dict[ts_guess_file] = true_energies[index]
-
-        # Sort guesses based on energy
-        sorted_guess_dict = sorted(ts_guess_dict.items(), key=lambda x: x[1], reverse=True)
-        ranked_guess_files = [item[0] for item in sorted_guess_dict]
-
-        return ranked_guess_files
+        return []
 
     def make_work_dir(self):
         """
@@ -303,24 +298,29 @@ class TSOptimizer:
         try:
             extract_transition_state_geometry(log_file, f'{os.path.splitext(log_file)[0]}.xyz')
             if xtb:
+                # first do a crude confirmation
+                validate_ts_guess(f'{os.path.splitext(log_file)[0]}.xyz', self.reaction_dir, 
+                    self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent)
+                # then do full IRC
                 irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(
                     f'{os.path.splitext(log_file)[0]}.xyz',
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
                     method=self.xtb_external_path,
-                    mem=self.mem, proc=self.proc,
-                    solvent=self.xtb_solvent, charge=self.charge, multiplicity=self.multiplicity
+                    mem=self.mem, proc=self.proc, solvent=self.xtb_solvent, 
+                    charge=self.charge, multiplicity=self.multiplicity, stepsize=15
                 )
             else:
                 irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(
                     f'{os.path.splitext(log_file)[0]}.xyz',
                     output_prefix=f'{os.path.splitext(log_file)[0]}_irc',
                     method=f'{method}/{basis_set} ',
-                    mem=self.mem, proc=self.proc,
-                    solvent=self.dft_solvent, charge=self.charge, multiplicity=self.multiplicity
+                    mem=self.mem, proc=self.proc, solvent=self.dft_solvent, 
+                    charge=self.charge, multiplicity=self.multiplicity, stepsize=15
                 )
 
             run_irc(irc_input_file_f)
             run_irc(irc_input_file_r)
+            
             extract_irc_geometries(f'{os.path.splitext(irc_input_file_f)[0]}.log',
                                f'{os.path.splitext(irc_input_file_r)[0]}.log')
 
@@ -386,19 +386,22 @@ class TSOptimizer:
         shutil.copy(xyz_file, self.final_guess_dir)
         shutil.copy(log_file, self.final_guess_dir)
 
+    def print_active_atoms(self, path):
+        """
+                Print the index of the atoms involved in the transformation.
+                Parameters:
+                - path (PathGenerator)
+                Returns:
+                - None
+                """
+        active_atoms_file = os.path.join(self.final_guess_dir, 'active_atoms.inp')
 
-def find_local_max_indices(numbers):
-    """
-    Find indices of local maxima in a list of numbers.
+        if not 'active_atoms.inp' in os.listdir(self.final_guess_dir):
+            formed_bonds = path.formed_bonds
+            for bond in formed_bonds:
+                atom_i = int(bond[0])
+                atom_j = int(bond[1])
+                idx1, idx2 = path.atom_map_dict[atom_i], path.atom_map_dict[atom_j]
 
-    Parameters:
-    - numbers (list): List of numbers.
-
-    Returns:
-    - list: List of indices corresponding to local maxima.
-    """
-    local_max_indices = []
-    for i in range(len(numbers) - 2, 0, -1):
-        if numbers[i] > numbers[i - 1] and numbers[i] > numbers[i + 1]:
-            local_max_indices.append(i)
-    return local_max_indices
+                with open(active_atoms_file, 'a') as file:
+                    file.write(f"{idx1}  {idx2}\n")
