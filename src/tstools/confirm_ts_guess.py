@@ -10,7 +10,7 @@ import subprocess
 xtb = ade.methods.XTB()
 
 
-def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, multiplicity=1, solvent=None):
+def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, multiplicity=1, solvent=None, proc=2):
     """
     Validate the transition state (TS) guess file based on frequency and displacement information.
 
@@ -27,7 +27,7 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, multiplic
       and its frequency; otherwise, returns None for both.
     """
     # get all information about main imaginary mode
-    freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, multiplicity, solvent)
+    freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, multiplicity, solvent, proc)
 
     if freq < -freq_cut_off and main_displacement_is_active:
         return True
@@ -35,7 +35,7 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, multiplic
         return False
 
 
-def extract_info_ts_file(ts_file, path, charge, multiplicity, solvent):
+def extract_info_ts_file(ts_file, path, charge, multiplicity, solvent, proc):
     """
     Extract information related to a transition state (TS) from a directory.
 
@@ -69,7 +69,7 @@ def extract_info_ts_file(ts_file, path, charge, multiplicity, solvent):
     reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_file, charge, multiplicity)   
 
     # Compute the displacement along the imaginary mode
-    _ = get_negative_frequencies(ts_file, charge, solvent, multiplicity)
+    _ = get_negative_frequencies(ts_file, charge, solvent, multiplicity, proc)
     normal_mode, freq = read_first_normal_mode('g98.out')
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
@@ -240,7 +240,7 @@ def get_xyzs(path):
     return reactant_file, product_file
 
 
-def get_negative_frequencies(filename, charge, solvent, multiplicity):
+def get_negative_frequencies(filename, charge, solvent, multiplicity, proc=2):
     """
     Executes an external program to calculate the negative frequencies for a given file.
 
@@ -252,7 +252,7 @@ def get_negative_frequencies(filename, charge, solvent, multiplicity):
         list: A list of negative frequencies.
     """
     with open('hess.out', 'w') as out:
-        cmd = f'xtb {filename} --charge {charge} --hess '
+        cmd = f'xtb {filename} --charge {charge} --hess -P {proc} '
         if solvent is not None:
             cmd += f'--alpb {solvent} '
         if multiplicity != 1:

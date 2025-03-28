@@ -205,7 +205,7 @@ def write_xtb_input_file(xyz_path):
     return file_path
 
 
-def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
+def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None, proc=2):
     """
     Optimize the final point of an Intrinsic Reaction Coordinate (IRC) using XTB.
 
@@ -220,7 +220,7 @@ def optimize_final_point_irc(xyz_file, charge, multiplicity, solvent=None):
     """
     inp_path = write_xtb_input_file(xyz_file)
     with open(f'{xyz_file[:-4]}.out', 'w') as out:
-        cmd = f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge} '
+        cmd = f'xtb --input {inp_path} {xyz_file} --opt --cma --charge {charge} -P {proc} '
 
         if multiplicity == 1:
             pass
@@ -257,7 +257,7 @@ def update_molecular_graphs(rel_tolerance, forward_mol, reverse_mol, reactant_mo
 
 
 #TODO: optimize in case of DFT???
-def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0, multiplicity=1, solvent=None):
+def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, charge=0, multiplicity=1, solvent=None, proc=2):
     """
     Compare molecular graphs of IRC (Intrinsic Reaction Coordinate) molecules after optimization.
 
@@ -274,8 +274,8 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
     bool: True if the molecular graphs match for any relative tolerance, False otherwise.
     """
     # first reoptimize the final points
-    optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent)
-    optimize_final_point_irc(reverse_xyz, charge, multiplicity, solvent)
+    optimize_final_point_irc(forward_xyz, charge, multiplicity, solvent, proc)
+    optimize_final_point_irc(reverse_xyz, charge, multiplicity, solvent, proc)
     # then take final geometry and do actual comparison
     forward_mol = ade.Molecule(f'{forward_xyz[:-4]}_opt.xyz', name='forward', charge=charge, mult=multiplicity)
     reverse_mol = ade.Molecule(f'{reverse_xyz[:-4]}_opt.xyz', name='reverse', charge=charge, mult=multiplicity)
@@ -339,9 +339,9 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
     else:
         if solvent is not None:
-            external_method = f'external="{method} alpb={solvent}"'
+            external_method = f'external="{method} proc={proc} alpb={solvent}"'
         else:
-            external_method = f'external="{method}"'
+            external_method = f'external="{method} proc={proc}"'
         input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Forward) {external_method}\n\n' \
             f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
         input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Reverse) {external_method}\n\n' \

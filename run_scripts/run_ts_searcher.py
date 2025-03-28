@@ -23,6 +23,7 @@ def get_args():
                         default=[2.5, 1.8, 1.5, 1.3])
     parser.add_argument('--freq-cut-off', action='store', type=int, default=50)
     parser.add_argument('--solvent', action='store', type=str, default=None)
+    parser.add_argument('--proc', action='store', type=int, default=2)
     parser.add_argument('--xtb-external-path', action='store', type=str, 
                         default="xtb_external_script/xtb_external.py")
     parser.add_argument('--input-file', action='store', type=str, default='data/reactions_am.txt')
@@ -87,7 +88,7 @@ def optimize_individual_ts(ts_optimizer):
 def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solvent,
                              reactive_complex_factor_list_intermolecular,
                              reactive_complex_factor_list_intramolecular, freq_cut_off, 
-                             intermediate_check):
+                             intermediate_check, proc):
     """
     Obtain transition states for a list of reactions.
 
@@ -111,7 +112,7 @@ def obtain_transition_states(target_dir, reaction_list, xtb_external_path, solve
     for rxn_idx, rxn_smiles in reaction_list:
         ts_optimizer_list.append(TSOptimizer(rxn_idx, rxn_smiles, xtb_external_path,
                                              solvent, None, reactive_complex_factor_list_intermolecular,
-                                             reactive_complex_factor_list_intramolecular, freq_cut_off, 
+                                             reactive_complex_factor_list_intramolecular, freq_cut_off, proc=proc,
                                              intermediate_check=intermediate_check))
 
     print(f'{len(ts_optimizer_list)} reactions to process...')
@@ -160,7 +161,7 @@ def run_all_reaction_smiles_in_file(args, input_file):
         xtb_external_path, solvent=args.solvent, 
         reactive_complex_factor_list_intramolecular=args.reactive_complex_factors_intra, 
         reactive_complex_factor_list_intermolecular=args.reactive_complex_factors_inter, 
-        freq_cut_off=args.freq_cut_off, intermediate_check=args.intermediate_check)
+        freq_cut_off=args.freq_cut_off, intermediate_check=args.intermediate_check, proc=args.proc)
 
     return successful_reactions, stepwise_reactions 
 

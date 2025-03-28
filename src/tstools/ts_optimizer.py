@@ -90,7 +90,7 @@ class TSOptimizer:
             return None
 
         if xtb:
-            method = f'external="{self.xtb_external_path}{" alpb=" + self.xtb_solvent if self.xtb_solvent else ""}"'
+            method = f'external="{self.xtb_external_path} proc={self.proc} {" alpb=" + self.xtb_solvent if self.xtb_solvent else ""}"'
             basis_set = ''
     
         extra_commands = f'opt=(ts, calcall, noeigen, nomicro, MaxCycles={self.max_cycles})'
@@ -152,23 +152,23 @@ class TSOptimizer:
         if '.' in self.reactant_smiles:
             path = PathGenerator(
                 self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
+                self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc
             )
         else:
             # Quick run to see if inversion is needed
             path = PathGenerator(
             self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-            self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1
+            self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1, proc=self.proc
             )
             if len(path.formed_bonds) < len(path.broken_bonds) and '.' not in self.reactant_smiles:
                 path = PathGenerator(
                     self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
+                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc
                 )
             else:
                 path = PathGenerator(
                     self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf
+                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc
                 )
 
         return path
@@ -187,7 +187,7 @@ class TSOptimizer:
             # first, generate the actual path
             energies, potentials, path_xyz_files = path.get_path()
             if energies is not None:
-                analyzer = PathAnalyzer(path, energies, potentials, path_xyz_files)
+                analyzer = PathAnalyzer(path, energies, potentials, path_xyz_files, self.proc)
                 # check if the correct bonds are broken and formed along the path
                 if path.reaction_is_organometallic:
                     reasonable_path = True # with organometallic compounds, bond lengths can vary a lot, so always accept
@@ -300,7 +300,7 @@ class TSOptimizer:
             if xtb:
                 # first do a crude confirmation
                 validate_ts_guess(f'{os.path.splitext(log_file)[0]}.xyz', self.reaction_dir, 
-                    self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent)
+                    self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent, self.proc)
                 # then do full IRC
                 irc_input_file_f, irc_input_file_r = generate_gaussian_irc_input(
                     f'{os.path.splitext(log_file)[0]}.xyz',
@@ -329,7 +329,7 @@ class TSOptimizer:
                 f'{os.path.splitext(irc_input_file_r)[0]}.xyz',
                 os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz'),
                 os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'),
-                self.charge, self.multiplicity, self.xtb_solvent
+                self.charge, self.multiplicity, self.xtb_solvent, self.proc
             )
 
             return reaction_correct

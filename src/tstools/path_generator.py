@@ -51,7 +51,7 @@ class PathGenerator:
     STRETCH_FACTOR_UPPER_BOUND = 1.3
 
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
-                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100):
+                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100, proc=2):
         """
         Initialize a PathGenerator object.
 
@@ -82,6 +82,7 @@ class PathGenerator:
         self.charge = charge
         self.multiplicity = multiplicity
         self.n_conf = n_conf
+        self.proc = proc
 
         os.chdir(self.path_dir)
 
@@ -318,7 +319,7 @@ class PathGenerator:
             for key, val in formation_constraints_stretched.items():
                 f.write(f'    distance: {key[0] + 1}, {key[1] + 1}, {val}\n')
             f.write('$end\n')
-        cmd = f'xtb {self.stereo_correct_conformer_name}.xyz --opt --input {xtb_input_path} -v --charge {self.charge} '
+        cmd = f'xtb {self.stereo_correct_conformer_name}.xyz --opt --input {xtb_input_path} -v --charge {self.charge} -P {self.proc} '
 
         if self.solvent is not None:
             cmd += f'--alpb {self.solvent} '
@@ -381,7 +382,7 @@ class PathGenerator:
                 f.write(f'    distance: {key[0] + 1}, {key[1] + 1}, {val}\n')
             f.write('$end\n')
 
-        cmd = f'xtb {reactive_complex_xyz_file} --opt --input {xtb_input_path} -v --charge {self.charge} '
+        cmd = f'xtb {reactive_complex_xyz_file} --opt --input {xtb_input_path} -v --charge {self.charge} -P {self.proc} '
 
         if self.solvent is not None:
             cmd += f'--alpb {self.solvent} '

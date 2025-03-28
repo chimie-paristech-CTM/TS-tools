@@ -27,7 +27,7 @@ ps.removeHs = False
 
 class PathAnalyzer:
 
-    def __init__(self, path, energies, potentials, path_xyz_files):
+    def __init__(self, path, energies, potentials, path_xyz_files, proc):
         """
         Initialize a PathAnalyzer object.
 
@@ -44,6 +44,7 @@ class PathAnalyzer:
         self.points_of_interest, self.pca_coord = self.analyze_reaction_path()
 
         self.barrier_estimate = None
+        self.proc = proc
 
     def check_if_reactive_path_is_reasonable(self):
         """
@@ -691,7 +692,7 @@ def filter_xyz(input_xyz_file, output_xyz_file, indices_to_retain):
         outfile.writelines(filtered_data)
 
 
-def optimize_candidate_intermediate(path, input_file):
+def optimize_candidate_intermediate(path, input_file, proc):
     """    
     Optimizes the geometry of a candidate intermediate using the XTB method.
 
@@ -704,7 +705,7 @@ def optimize_candidate_intermediate(path, input_file):
         RuntimeError: If the XTB optimization process fails.
     """
     os.remove('xtbopt.xyz')
-    cmd = f'xtb {input_file} --opt --charge {path.charge} '
+    cmd = f'xtb {input_file} --opt --charge {path.charge} -P {proc} '
 
     if path.solvent is not None:
         cmd += f'--alpb {path.solvent} '
