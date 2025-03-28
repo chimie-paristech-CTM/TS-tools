@@ -30,9 +30,9 @@ def validate_ts_guess(ts_guess_file, path, freq_cut_off=150, charge=0, multiplic
     freq, main_displacement_is_active = extract_info_ts_file(ts_guess_file, path, charge, multiplicity, solvent)
 
     if freq < -freq_cut_off and main_displacement_is_active:
-        return ts_guess_file, freq
+        return True
     else:
-        return None, None
+        return False
 
 
 def extract_info_ts_file(ts_file, path, charge, multiplicity, solvent):
@@ -69,7 +69,7 @@ def extract_info_ts_file(ts_file, path, charge, multiplicity, solvent):
     reactant, product, ts_mol = get_ade_molecules(reactant_file, product_file, ts_file, charge, multiplicity)   
 
     # Compute the displacement along the imaginary mode
-    _ = get_negative_frequencies(ts_file, charge, solvent)
+    _ = get_negative_frequencies(ts_file, charge, solvent, multiplicity)
     normal_mode, freq = read_first_normal_mode('g98.out')
     f_displaced_species = displaced_species_along_mode(ts_mol, normal_mode, disp_factor=1)
     b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
@@ -240,7 +240,7 @@ def get_xyzs(path):
     return reactant_file, product_file
 
 
-def get_negative_frequencies(filename, charge, solvent):
+def get_negative_frequencies(filename, charge, solvent, multiplicity):
     """
     Executes an external program to calculate the negative frequencies for a given file.
 
@@ -252,12 +252,14 @@ def get_negative_frequencies(filename, charge, solvent):
         list: A list of negative frequencies.
     """
     with open('hess.out', 'w') as out:
+        cmd = f'xtb {filename} --charge {charge} --hess '
         if solvent is not None:
-            process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess --alpb {solvent}'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
-        else:
-            process = subprocess.Popen(f'xtb {filename} --charge {charge} --hess'.split(), 
-                                   stderr=subprocess.DEVNULL, stdout=out)
+            cmd += f'--alpb {solvent} '
+        if multiplicity != 1:
+            cmd += f'--uhf {multiplicity - 1} '
+
+        process = subprocess.Popen(cmd.split(), 
+            stderr=subprocess.DEVNULL, stdout=out)
         process.wait()
     
     neg_freq = read_negative_frequencies('g98.out')

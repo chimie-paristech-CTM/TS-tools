@@ -145,13 +145,16 @@ def get_hessian(natoms):
     return hessian
 
 
-def run_xtb(natoms, nderiv, chrg, spin, atomtypes, coords, solvent=None):
+def run_xtb(natoms, nderiv, chrg, spin, atomtypes, coords, proc, solvent=None):
     """ """
 
     write_xyz(natoms, atomtypes, coords)
 
-    os.environ["OMP_NUM_THREADS"] = str(2)
-    os.environ["MKL_NUM_THREADS"] = str(2)
+    if proc != 2:
+        _, proc = proc.split("=")
+
+    os.environ["OMP_NUM_THREADS"] = str(proc)
+    os.environ["MKL_NUM_THREADS"] = str(proc)
     cmd = f"xtb mol.xyz --chrg {chrg} --uhf {spin - 1} --gfn 2 "
     if nderiv == 1:
         cmd += "--grad "
@@ -196,14 +199,18 @@ def clean_dir():
 if __name__ == "__main__":
     
     solvent = None
+    proc = 2
 
-    if len(sys.argv[1]) > 7: # given ekstra kwd
+    if len(sys.argv[1]) > 5: # given ekstra kwd
         for i, kwd in enumerate(sys.argv):
             if kwd == "R":
                 break
              
-            if "gbsa" or "alpb" in kwd:
+            if ("gbsa" in kwd) or ("alpb" in kwd):
                 solvent = kwd
+            
+            if "proc" in kwd:
+                proc = kwd
         
         ifile=sys.argv[i+1]    
         ofile=sys.argv[i+2]
@@ -213,7 +220,7 @@ if __name__ == "__main__":
         ofile = sys.argv[3]
 
     (natoms, nderiv, chrg, spin, atomtypes, coords) = parse_ifile(ifile)
-    energy, dipole = run_xtb(natoms, nderiv, chrg, spin, atomtypes, coords, solvent=solvent)
+    energy, dipole = run_xtb(natoms, nderiv, chrg, spin, atomtypes, coords, proc, solvent=solvent)
 
     if nderiv == 0:
         parse_ofile(ofile, energy, natoms, dipole)

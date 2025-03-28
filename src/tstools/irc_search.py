@@ -301,7 +301,7 @@ def compare_molecules_irc(forward_xyz, reverse_xyz, reactant_xyz, product_xyz, c
 
 
 def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LYP/6-31G**', 
-                                mem='2GB', proc=2, solvent=None, charge=0, multiplicity=1):
+                                mem='2GB', proc=2, solvent=None, charge=0, multiplicity=1, stepsize=15):
     """
     Generate Gaussian input files for IRC (Intrinsic Reaction Coordinate) calculations.
 
@@ -328,23 +328,23 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
     # Define the Gaussian input file content
     if 'external' not in method:
         if solvent is not None:
-            input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method} SCRF=(Solvent={solvent}, smd)' \
+            input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Forward) {method} SCRF=(Solvent={solvent}, smd)' \
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
-            input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method} SCRF=(Solvent={solvent}, smd)' \
+            input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Reverse) {method} SCRF=(Solvent={solvent}, smd)' \
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
         else:
-            input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {method}' \
+            input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Forward) {method}' \
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
-            input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {method}' \
+            input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n%NProc={proc}\n%Mem={mem}\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Reverse) {method}' \
                 f'\n\nIRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
     else:
         if solvent is not None:
             external_method = f'external="{method} alpb={solvent}"'
         else:
             external_method = f'external="{method}"'
-        input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Forward) {external_method}\n\n' \
+        input_content_f = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Forward) {external_method}\n\n' \
             f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n'
-        input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize=15, Reverse) {external_method}\n\n' \
+        input_content_r = f'%Chk={xyz_file.split("/")[-1][:-4]}.chk\n#p IRC(calcfc, maxpoint=50, stepsize={stepsize}, Reverse) {external_method}\n\n' \
             f'IRC Calculation\n\n{charge} {multiplicity}\n{"".join(atom_coords)}\n\n' 
 
     # Write the input content to a Gaussian input file -- forward
@@ -358,6 +358,27 @@ def generate_gaussian_irc_input(xyz_file, output_prefix='irc_calc', method='B3LY
         input_file.write(input_content_r)
 
     return input_filename_f, input_filename_r
+
+
+#################################
+# code for when IRC fails -> if highest point number below 10 -> do displacement along normal mode and optimize
+def extract_highest_point_number(log_file):
+    # Open and read the log file
+    with open(log_file, 'r') as file:
+        lines = file.readlines()
+    
+    # Reverse the lines to start searching from the end of the file
+    for line in reversed(lines):
+        # Look for the first line containing "Point Number"
+        match = re.search(r'Point Number\s+(\d+)', line)
+        if match:
+            # Return the point number as soon as it's found
+            return int(match.group(1))
+    
+    # Return None or raise an error if no "Point Number" is found
+    return None
+
+
 
 if __name__ == '__main__':
     #path = '/Users/thijsstuyver/Desktop/reaction_profile_generator/benchmarking_2.0_200/final_ts_guesses/reaction_R100_final_ts_guess_0.xyz'

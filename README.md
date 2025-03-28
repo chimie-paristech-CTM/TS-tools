@@ -17,10 +17,12 @@ conda activate ts-tools
 pip install .
 ```
 
-Additionally, Gaussian16 needs to be available. In HPC environments, this can typically be achieved by loading the corresponding module to the path:
+Additionally, Gaussian16, xTB and CREST need to be available. In HPC environments, this can typically be achieved by loading the corresponding module to the path:
 
 ```
 module load gaussian/g16_C01
+module load xTB
+module load CREST
 ```
 
 The 'xtb_external_script/xtb_external.py' should be set as executable:
@@ -140,9 +142,12 @@ If (parts of) this workflow are used as part of a publication, please cite the a
   author       = {Stuyver, T.},
   title        = {{TS-tools: Rapid and Automated Localization of 
 Transition States based on a Textual Reaction SMILES Input}},
-  journal      = {ChemRxiv},
+  journal      = {Journal of Computational Chemistry},
+  volume       = {45},
+  number       = {27},
+  pages        = {2308-2317},
   year         = {2024},
-  doi          = {10.26434/chemrxiv-2024-st2tr},
+  doi          = {https://doi.org/10.1002/jcc.27374},
 }
 ``` 
 

@@ -3,6 +3,7 @@ from rdkit import Chem
 import subprocess
 import shutil
 import time
+import logging
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -42,6 +43,8 @@ def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-3
 
         # Write the Cartesian coordinates section
         for line in atom_lines:
+            if not line.strip():
+                break
             atom_info = line.split()
             element = atom_info[0]
             x, y, z = atom_info[1:4]
@@ -72,11 +75,13 @@ def write_final_geometry_to_xyz(log_file_path):
     """
     Extract and write the final geometry from a Gaussian log file to an XYZ file.
 
-    Parameters:
-    - log_file_path (str): Path to the Gaussian log file.
+    Args:
+
+        - log_file_path (str): Path to the Gaussian log file.
 
     Returns:
-    str: Path to the generated XYZ file.
+
+        str: Path to the generated XYZ file.
     """
     final_geometry = []
     reading_geometry = False
@@ -126,15 +131,34 @@ def write_final_geometry_to_xyz(log_file_path):
     return xyz_file_path
 
 
+def write_xyz_file_from_rdkit_conf(rdkit_mol, filename):
+    """
+        Write an XYZ file from RDKit molecule.
+
+        Args:
+
+            rdkit_mol: The RDKit molecule object.
+            filename: The name of the XYZ file to write.
+        """
+
+    xyz_block = Chem.MolToXYZBlock(rdkit_mol, 0)
+
+    with open(filename + '.xyz', 'w') as f:
+        for line in xyz_block:
+            f.write(line)
+
+
 def run_g16_ts_optimization(file_path):
     """
     Run Gaussian 16 for transition state optimization.
 
-    Parameters:
-    - file_path (str): Path to the Gaussian input file.
+    Args:
+
+        file_path (str): Path to the Gaussian input file.
 
     Returns:
-    str: Path to the Gaussian log file.
+
+        str: Path to the Gaussian log file.
     """
     # Run Gaussian 16 using nohup and redirect stderr to /dev/null
     log_file = os.path.splitext(file_path)[0] + ".log"
@@ -155,11 +179,13 @@ def run_irc(input_file):
     """
     Run IRC (Intrinsic Reaction Coordinate) calculation using Gaussian 16.
 
-    Parameters:
-    - input_file (str): Path to the Gaussian input file.
+    Args:
+
+        input_file (str): Path to the Gaussian input file.
 
     Returns:
-    None
+
+        None
     """
     out_file = f'{input_file[:-4]}.out'
     log_file = f'{input_file[:-4]}.log'
@@ -177,12 +203,14 @@ def copy_final_outputs(work_dir, output_dir):
     """
     Copy final outputs from a working directory to an output directory.
 
-    Parameters:
-    - work_dir (str): Path to the working directory.
-    - output_dir (str): Path to the output directory.
+    Args:
+
+        work_dir (str): Path to the working directory.
+        output_dir (str): Path to the output directory.
 
     Returns:
-    None
+
+        None
     """
     os.makedirs(output_dir, exist_ok=True)
     for reaction_dir in os.listdir(work_dir):
@@ -198,15 +226,38 @@ def copy_final_outputs(work_dir, output_dir):
             continue
 
 
+def copy_final_files(work_dir, output_dir):
+    """
+    Copy final outputs from a working directory to an output directory.
+
+    Args:
+
+        work_dir (str): Path to the working directory.
+        output_dir (str): Path to the output directory.
+        ts_only (bool): Copy only the TS guess
+
+    Returns:
+
+        None
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    shutil.copy(os.path.join(work_dir, 'rp_geometries/reactants_geometry.xyz'), output_dir)
+    shutil.copy(os.path.join(work_dir, 'rp_geometries/products_geometry.xyz'), output_dir)
+    final_ts_guess_dir = os.path.join(work_dir, 'final_ts_guess')
+    shutil.copytree(final_ts_guess_dir, output_dir, dirs_exist_ok=True)
+
+
 def remove_files_in_directory(directory):
     """
     Remove all files in a directory, keeping the directory structure intact.
 
-    Parameters:
-    - directory (str): Path to the directory.
+    Args:
+
+        directory (str): Path to the directory.
 
     Returns:
-    None
+
+        None
     """
     try:
         # List all items in the directory
@@ -226,7 +277,9 @@ def remove_files_in_directory(directory):
 
 
 def get_reaction_list(filename):
-    ''' a function that opens a file, reads in every line as a reaction smiles and returns them as a list. '''
+    '''
+    a function that opens a file, reads in every line as a reaction smiles and returns them as a list.
+    '''
     with open(filename, 'r') as f:
         lines = f.readlines()
         reaction_list = [line.rstrip().split() for line in lines]
@@ -237,7 +290,7 @@ def setup_dir(target_dir):
     """
     Read reaction SMILES from a file and return them as a list.
 
-    Parameters:
+    Args:
     - filename (str): Path to the file containing reaction SMILES.
 
     Returns:
@@ -248,21 +301,37 @@ def setup_dir(target_dir):
     os.mkdir(target_dir)
 
 
-def print_statistics(successful_reactions, start_time):
+def print_statistics(successful_reactions, sub_reactions, start_time):
     """
     Print statistics including the number of successful reactions and the time taken.
 
-    Parameters:
-    - successful_reactions (list): List of successful reactions.
-    - start_time (float): Start time of the process.
+    Args:
+
+        successful_reactions (list): List of successful reactions.
+        sub_reactions (list): list of the sub reactions constructed based on intermediates found.
+        start_time (float): Start time of the process.
 
     Returns:
-    None
+
+        None
     """
     end_time = time.time()
     print(f'Successful reactions: {successful_reactions}')
     print(f'Number of successful reactions: {len(successful_reactions)}')
+    print(f'Number of (potentially) stepwise reactions: {int(len(sub_reactions)/2)}')
     print(f'Time taken: {end_time - start_time}')
+
+
+def write_stepwise_reactions_to_file(stepwise_reactions, input_file):
+    input_file_stepwise_reactions = f'{input_file.strip(".txt")}_stepwise.txt'
+    with open(input_file_stepwise_reactions, 'w') as f:
+        for rxn_id, rxn_smiles in stepwise_reactions:
+            if rxn_smiles is not None:
+                f.write(f'{rxn_id} {rxn_smiles}\n')
+            else:
+                continue
+
+    return input_file_stepwise_reactions
 
 
 class NotConverged(Exception):
@@ -271,15 +340,33 @@ class NotConverged(Exception):
         super().__init__(message)
 
 
+class DetectedIntermediateException(Exception):
+    def __init__(self, message, reaction_smiles1, reaction_smiles2):
+        super().__init__(message)  # Pass only the message to the base Exception class
+        self.reaction_smiles1 = reaction_smiles1
+        self.reaction_smiles2 = reaction_smiles2  
+
+    def __reduce__(self):
+        # Return a tuple of (class_name, args) where args are the arguments to recreate the object
+        return (self.__class__, (self.args[0], self.reaction_smiles1, self.reaction_smiles2))
+
+
+class SmilesGenerationException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
 def extract_geom_from_xyz(filename):
     """
     Extract geometry from a XYZ file
 
-    Parameters:
-    - filename (str): Path to a XYZ file
+    Args:
+
+        filename (str): Path to a XYZ file
 
     Returns:
-    geom (list): Geometry
+
+        geom (list): Geometry
     """
     
     with open(filename, 'r') as file:
@@ -292,18 +379,66 @@ def extract_geom_from_xyz(filename):
         geom.append(line)
 
     return geom
+
+
+def extract_geom_from_g16(filename):
+    """
+    Extract geometry from a Gaussian log file
+
+    Args:
+
+        filename (str): Path to a Gaussian log file
+
+    Returns:
+
+        geom (list): Geometry
+    """
+
+    with open(filename, 'r') as file:
+        lines = file.readlines()[::-1]
+
+    block_lines = []
+    append_line = False
+
+    for line in lines:
+        if (
+                r"\\@" in line
+                or line.startswith(" @")
+                or line.startswith(r" \@")
+        ):
+            append_line = True
+
+        if append_line:
+            #                 Strip off new-lines and spaces
+            block_lines.append(line.strip("\n").strip(" "))
+
+        if (
+                "Unable to Open any file for archive entry." in line
+        ):
+            break
+
+    geom_g16 = [split for split in "".join(block_lines[::-1]).split(r"\\")][3]
+    geom_g16 = geom_g16.split(f"\\")
+
+    geom = []
+    for coord in geom_g16[1:]:
+        label, _, x, y, z = coord.split(',')
+        geom.append(f" {label}  {x}  {y}  {z}\n")
+
+    return geom
     
 
-def extract_geom_from_crest_ensemble(filename, number):
+def extract_geom_from_crest_ensemble(filename, num_conf):
     """
     Extract geometries from a XYZ file with an ensemble of conformers (CREST)
 
-    Parameters:
-    - lines (list): Lines of XYZ file
-    - number (int): How many conformers
+    Args:
+        filename (str): File name of the ensemble of conformers
+        num_conf (int): How many conformers
 
     Return:
-    geoms (list): Geometries
+
+        geoms (list): Geometries
     """
     
     with open(filename, 'r') as file:
@@ -314,7 +449,7 @@ def extract_geom_from_crest_ensemble(filename, number):
     num_atoms = int(lines[0])
     lines_ind_xyz = num_atoms + 2
 
-    for i in range(number):
+    for i in range(num_conf):
         geom = lines[i*lines_ind_xyz + 2:(i+1)*lines_ind_xyz]
         geoms.append(geom)
 
@@ -324,8 +459,10 @@ def extract_geom_from_crest_ensemble(filename, number):
 def create_input_file_opt_g16(name, geom, charge, multiplicity, mem, proc, extra_commands=None,
                             modredundant=None, splitter=None, functional='UB3LYP', basis_set='6-31G', solvent=None):
     """
-    Function to generate input of Gaussian
+    Create input file for optimization with G16
+
     Args:
+
         name (str): final name of the input
         geom (list): list with the coordinates
         charge (int): charge
@@ -340,7 +477,8 @@ def create_input_file_opt_g16(name, geom, charge, multiplicity, mem, proc, extra
         solvent (str): solvent
 
     Return:
-        Create input file for loose opt
+
+        None
     """
 
     if not extra_commands:
@@ -384,16 +522,69 @@ def create_input_file_opt_g16(name, geom, charge, multiplicity, mem, proc, extra
                 file.write(f"{constraint}\n")
         file.write("\n\n")
 
+def create_input_file_sp_g16(name, geom, charge, multiplicity, mem, proc,
+                            splitter=None, functional='UB3LYP', basis_set='6-31G', solvent=None):
+    """
+    Create input file for single-point with G16
+
+    Args:
+
+        name (str): final name of the input
+        geom (list): list with the coordinates
+        charge (int): charge
+        multiplicity (int): multiplicity
+        mem (str): Specifies the memory requested in the Gaussian16 .com files
+        proc (int): number of CPUs
+        splitter (str): separator for the string
+        functional (str): functional
+        basis_set (str): basis_set
+        solvent (str): solvent
+
+    Return:
+
+        None
+    """
+
+    if solvent:
+        solvent_keyword = f"scrf=(SMD, solvent={solvent})"
+    else:
+        solvent_keyword = " "
+
+    route_link_sp = f"# {functional} {basis_set} Nosymm {solvent_keyword} \n\n"
+
+    coordinates = []
+
+    for atom in geom:
+        elements = len(atom.split(splitter))
+        if elements == 5:
+            label, _, x, y, z = atom.split(splitter)
+        else:
+            label, x, y, z = atom.split(splitter)
+        coordinates.append(f"{label}  {x}  {y}  {z}")
+
+    with open(f"{name}.com", 'w') as file:
+
+        file.write(f"%nprocshared={proc}\n")
+        file.write(f"%mem={mem}\n")
+        file.write(f"{route_link_sp}")
+        file.write("sp \n\n")
+        file.write(f"{charge} {multiplicity}\n")
+        for coordinate in coordinates:
+            file.write(f"{coordinate}\n")
+        file.write("\n\n")
+
 
 def extract_g16_energy(filename):
     """
     Extract energy from a Gaussian16 output
     
-    Parameters:
-    - filename (str): Path to the Gaussian output
+    Args:
+
+        filename (str): Path to the Gaussian output
     
     Returns:
-    - energy (float): Energy
+
+        energy (float): Energy
     """
     
     with open(filename, 'r') as file:
@@ -411,8 +602,119 @@ def extract_g16_energy(filename):
     return energy
 
 
+def extract_g16_xtb_energy(filename):
+    """
+    Extract energy from a Gaussian16 output when xTB is used
 
+    Args:
+
+        filename (str): Path to the Gaussian output
+
+    Returns:
+
+        energy (float): Energy
+    """
+
+    with open(filename, 'r') as file:
+        lines = file.readlines()[::-1]
+
+    for line in lines:
+
+        if 'Error termination' in line:
+            return None
+
+        if line.startswith(' Recovered energy='):
+            energy = float(line.split()[2])
+            break
+
+    return energy
+
+
+def create_logger(name='output.log') -> logging.Logger:
+    """
+    Creates a logger with a stream handler and two file handlers.
+
+    The stream handler prints to the screen depending on the value of `quiet`.
+    One file handler (verbose.log) saves all logs, the other (quiet.log) only saves important info.
+
+    Args:
+
+        name: Name the log.
+
+    Return:
+
+        logger.
+    """
+
+    logger = logging.getLogger('final.log')
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(f'{name}')
+    fh.setLevel(logging.DEBUG)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.ERROR)
+    # add the handlers to the logger
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+
+    return logger
+
+
+def extract_crest_energy():
+    """
+        Extract energy from the CREST output
+
+        Return:
+
+            energy (float): Energy of the lowest energy conformer.
+        """
+
+    with open('crest_best.xyz', 'r') as f:
+        lines = f.readlines()
+
+    if len(lines[1].split()) == 1:
+        return float(lines[1])
+    else:
+        return float(lines[1].split()[1])
+
+
+def read_active_atoms(file):
+
+    active_atoms = []
+
+    if file:
+        with open(file, 'r') as f:
+           lines = f.readlines()
+
+        for line in lines:
+            i, j = line.split()
+            active_atoms.append(i)
+            active_atoms.append(j)
+
+        return active_atoms
+    else:
+        return None
+
+
+def write_xyz_file_from_geom(coords, filename):
+    """
+        Write an XYZ file from a list of coordinates.
+
+        Args:
+            coords: The coordinates.
+            filename: The name of the XYZ file to write.
+        """
+
+    with open(filename + '.xyz', 'w') as f:
+        f.write(f"{len(coords)}\n\n")
+        for coord in coords:
+            f.write(coord)
+        f.write("\n")
 
 
 if __name__ == '__main__':
    write_final_geometry_to_xyz('logs/ts_guess_2.log')
+
