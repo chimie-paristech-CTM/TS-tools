@@ -187,7 +187,7 @@ class TSOptimizer:
             # first, generate the actual path
             energies, potentials, path_xyz_files = path.get_path()
             if energies is not None:
-                analyzer = PathAnalyzer(path, energies, potentials, path_xyz_files, self.proc)
+                analyzer = PathAnalyzer(path, energies, potentials, path_xyz_files, self.proc, charge=self.charge, multiplicity=self.multiplicity)
                 # check if the correct bonds are broken and formed along the path
                 if path.reaction_is_organometallic:
                     reasonable_path = True # with organometallic compounds, bond lengths can vary a lot, so always accept

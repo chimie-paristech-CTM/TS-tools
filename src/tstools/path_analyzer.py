@@ -27,7 +27,7 @@ ps.removeHs = False
 
 class PathAnalyzer:
 
-    def __init__(self, path, energies, potentials, path_xyz_files, proc):
+    def __init__(self, path, energies, potentials, path_xyz_files, proc, charge=0, multiplicity=1,):
         """
         Initialize a PathAnalyzer object.
 
@@ -38,13 +38,17 @@ class PathAnalyzer:
         self.energies = energies
         self.potentials = potentials
         self.path_xyz_files = path_xyz_files
+        self.proc = proc
+
+        self.charge = charge
+        self.multiplicity = multiplicity
 
         self.true_energies = self.get_true_energies()
         self.reactant_mol, self.product_mol = self.get_reactant_and_product_mol()
         self.points_of_interest, self.pca_coord = self.analyze_reaction_path()
 
         self.barrier_estimate = None
-        self.proc = proc
+        
 
     def check_if_reactive_path_is_reasonable(self):
         """
@@ -63,7 +67,7 @@ class PathAnalyzer:
                 are a subset of the expected broken bonds.
             4. Returns True if both conditions hold; otherwise, returns False.
         """
-        extreme_point_mol = ade.Molecule(self.path_xyz_files[self.points_of_interest[0]])
+        extreme_point_mol = ade.Molecule(self.path_xyz_files[self.points_of_interest[0]], charge=self.charge, mult=self.multiplicity)
 
         bonds_formed = set(self.product_mol.graph.edges()) - set(self.reactant_mol.graph.edges())
         bonds_broken = set(self.reactant_mol.graph.edges()) - set(self.product_mol.graph.edges())
@@ -99,7 +103,7 @@ class PathAnalyzer:
         Raises:
             None: Errors are handled by returning None if an issue arises with the intermediate candidate.
         """
-        pot_inter_mol = ade.Molecule(self.path_xyz_files[self.points_of_interest[0]])
+        pot_inter_mol = ade.Molecule(self.path_xyz_files[self.points_of_interest[0]], charge=self.charge, mult=self.multiplicity)
 
         if set(pot_inter_mol.graph.edges) != set(self.reactant_mol.graph.edges) and \
             set(pot_inter_mol.graph.edges) != set(self.product_mol.graph.edges):
@@ -360,8 +364,8 @@ class PathAnalyzer:
         reactant_xyz_path = os.path.join(self.path.rp_geometries_dir, 'reactants_geometry.xyz')
         product_xyz_path = os.path.join(self.path.rp_geometries_dir, 'products_geometry.xyz')
 
-        reactant_mol = ade.Molecule(reactant_xyz_path)
-        product_mol = ade.Molecule(product_xyz_path)
+        reactant_mol = ade.Molecule(reactant_xyz_path, charge=self.charge, mult=self.multiplicity)
+        product_mol = ade.Molecule(product_xyz_path, charge=self.charge, mult=self.multiplicity)
 
         return reactant_mol, product_mol
     
