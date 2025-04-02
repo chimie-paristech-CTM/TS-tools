@@ -77,6 +77,8 @@ class TSOptimizer:
         self.intermediate_check = intermediate_check
         self.stepwise_reaction_smiles = None
 
+        self.xyz_file = None
+
     def determine_ts(self, xtb=True, method='UB3LYP', basis_set='6-31G**'):
         """
         Determine the transition state for the given optimization parameters.
@@ -108,6 +110,7 @@ class TSOptimizer:
 
             if self.confirm_opt_transition_state(log_file, xtb, method, basis_set):
                 xyz_file = f'{os.path.splitext(log_file)[0]}.xyz'
+                self.xyz_file = xyz_file
                 self.save_final_ts_guess_files(xyz_file, log_file)
                 self.ts_found = True
                 break

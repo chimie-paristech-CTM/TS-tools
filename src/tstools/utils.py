@@ -247,6 +247,25 @@ def copy_final_files(work_dir, output_dir):
     shutil.copytree(final_ts_guess_dir, output_dir, dirs_exist_ok=True)
 
 
+def copy_files(work_dir, output_dir, extension):
+    """
+    Copy files from a directory to an output directory.
+
+    Args:
+
+        work_dir (str): Path to the working directory.
+        output_dir (str): Path to the output directory.
+
+    Returns:
+
+        None
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    files = os.listdir(work_dir)
+    for file in files:
+        if extension in file:
+            shutil.copy(os.path.join(work_dir, file), output_dir)
+
 def remove_files_in_directory(directory):
     """
     Remove all files in a directory, keeping the directory structure intact.
@@ -681,6 +700,25 @@ def extract_crest_energy():
         return float(lines[1].split()[1])
 
 
+def extract_xtb_energy(name):
+    """
+        Extract energy from the xtb output
+
+        Return:
+
+            energy (float): Energy of the lowest energy conformer.
+        """
+
+    with open(f'{name}.out', 'r') as f:
+        lines = f.readlines()
+    
+    for line in lines:
+        if 'TOTAL ENERGY' in line:
+            return float(line.split()[3])
+
+    
+
+
 def read_active_atoms(file):
 
     active_atoms = []
@@ -713,6 +751,60 @@ def write_xyz_file_from_geom(coords, filename):
         for coord in coords:
             f.write(coord)
         f.write("\n")
+
+
+# TODO: What about triplet states?
+def get_charge_and_multiplicity(smi):
+    """
+    Get the charge and multiplicity of the reactant molecule.
+    Returns:
+    - tuple: (charge, multiplicity)
+    """
+
+    mol = Chem.MolFromSmiles(smi, ps)
+    charge = Chem.GetFormalCharge(mol)
+    total_electrons = 0
+
+    for atom in mol.GetAtoms():
+        # Add the atomic number
+        total_electrons += atom.GetAtomicNum()
+        
+    # subtract the net charge
+    total_electrons -= charge
+    multiplicity = total_electrons % 2 + 1
+    return charge, multiplicity
+
+
+def run_xtb_hessian(name, charge, uhf, proc, solvent, temp):
+
+    if solvent:
+        kwd_solvent = f"--alpb {solvent}"
+    else:
+        kwd_solvent = " "
+
+    command_line = f"xtb {name}.xyz --gfn2 -P {proc} {kwd_solvent}  --chrg {charge} --uhf {uhf} --etemp {temp} --hess > {name}_hess.out "
+
+    with open(f'{name}_hess.out', 'w') as out:
+        subprocess.run(command_line, shell=True, stdout=out, stderr=subprocess.DEVNULL,)
+
+
+def extract_xtb_gibbs_free_energy(name):
+    """
+        Extract Free gibbs energy from the xtb output
+
+        Return:
+
+            energy (float): Energy of the lowest energy conformer.
+        """
+
+    with open(f'{name}.out', 'r') as f:
+        lines = f.readlines()
+    
+    for line in lines:
+        if 'TOTAL FREE ENERGY' in line:
+            return float(line.split()[4])
+
+    
 
 
 if __name__ == '__main__':

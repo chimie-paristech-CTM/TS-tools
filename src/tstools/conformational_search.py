@@ -31,7 +31,7 @@ def get_args():
     return parser.parse_args()
 
 
-def run_crest(name, charge, uhf, atomlist, proc, solvent):
+def run_crest(name, charge, uhf, atomlist, proc, solvent, num_atoms = -1):
     """
     Run a conformational search using CREST.
 
@@ -43,6 +43,7 @@ def run_crest(name, charge, uhf, atomlist, proc, solvent):
         atomlist (list): Constrained atoms
         proc (int): Number of CPU that will be used
         solvent (str): Solvent
+        num_atoms (int): Number of atoms
 
     Returns:
 
@@ -59,6 +60,9 @@ def run_crest(name, charge, uhf, atomlist, proc, solvent):
         command_line = f"crest {name}.xyz --gfn2 -T {proc} --noreftopo --cinp constraints.inp {kwd_solvent} --chrg {charge} --uhf {uhf} > {name}.out"
     else:
         command_line = f"crest {name}.xyz --gfn2 -T {proc} --noreftopo {kwd_solvent}  --chrg {charge} --uhf {uhf} > {name}.out"
+    
+    if num_atoms == 1:
+        command_line = f"xtb {name}.xyz --gfn2 -P {proc} {kwd_solvent}  --chrg {charge} --uhf {uhf} > {name}.out "
 
     with open(f'{name}.out', 'w') as out:
         subprocess.run(command_line, shell=True, stdout=out, stderr=subprocess.DEVNULL,)

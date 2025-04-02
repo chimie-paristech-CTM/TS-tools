@@ -11,9 +11,9 @@ from glob import glob
 
 from tstools.ts_optimizer import TSOptimizer
 from tstools.conformational_search import run_crest, run_g16_opt,  normal_termination_crest, run_g16_sp
-from tstools.utils import remove_files_in_directory, copy_final_files, extract_g16_xtb_energy, read_active_atoms, \
-    write_stepwise_reactions_to_file, write_xyz_file_from_rdkit_conf, extract_crest_energy, extract_g16_energy, \
-    extract_geom_from_xyz, write_xyz_file_from_geom, extract_geom_from_g16
+from tstools.utils import remove_files_in_directory, copy_final_files, extract_g16_xtb_energy, read_active_atoms, extract_xtb_gibbs_free_energy, \
+    write_stepwise_reactions_to_file, write_xyz_file_from_rdkit_conf, extract_crest_energy, extract_g16_energy, run_xtb_hessian, \
+    extract_geom_from_xyz, write_xyz_file_from_geom, extract_geom_from_g16, extract_xtb_energy, get_charge_and_multiplicity
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -22,7 +22,7 @@ ps.removeHs = False
 class Reaction:
 
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, logger, functional='UPBE1PBE',
-                 basis_set='def2svp', mem='2GB', proc=2, max_cycles=30, dft_validation=False,):
+                 basis_set='def2svp', mem='2GB', proc=2, max_cycles=30, dft_validation=False, gibbs=False, temperature=298.15):
         """
         Initialize a Reaction instance.
 
@@ -49,6 +49,8 @@ class Reaction:
         self.max_cycles = max_cycles
         self.logger = logger
         self.dft_validation = dft_validation
+        self.gibbs = gibbs
+        self.temp = temperature
         self.energies = {}
         self.ts_found = False
 
@@ -83,21 +85,30 @@ class Reaction:
                 wcd = self.make_sub_dir(os.path.join(self.conf_dir, name)) #working conformer directory
                 os.chdir(wcd)
                 rdkit_mol = Chem.MolFromSmiles(smi, ps)
-                charge = Chem.GetFormalCharge(rdkit_mol)
-                uhf = Descriptors.NumRadicalElectrons(rdkit_mol)
+                charge, multiplicity = get_charge_and_multiplicity(smi)
+                uhf = multiplicity - 1
+                num_atoms = rdkit_mol.GetNumAtoms()
                 self.logger.info(f"Conformational search of {name}")
                 params = AllChem.ETKDGv3()
                 params.randomSeed = 3
                 AllChem.EmbedMultipleConfs(rdkit_mol, 1, params)
                 write_xyz_file_from_rdkit_conf(rdkit_mol, os.path.join(wcd, name))
-                run_crest(os.path.join(wcd, name), charge, uhf, None, self.proc, solvent_xtb)
+                run_crest(os.path.join(wcd, name), charge, uhf, None, self.proc, solvent_xtb, num_atoms)
+                final_geom = 'crest_best.xyz' if num_atoms != 1 else f'{name}.xyz'
                 if self.dft_validation:
                     run_g16_opt(os.path.join(wcd, name), num_conf, charge, uhf, None, self.mem, self.proc, self.functional, self.basis_set, solvent_dft)
                     shutil.copy(os.path.join(wcd, 'lowest_dft/dft_best.log'), f"{self.rp_isolated_geometries_dir}/{name}.log")
                     energy = extract_g16_energy(os.path.join(wcd, 'lowest_dft/dft_best.log'))
                 else:
-                    shutil.copy(os.path.join(wcd, 'crest_best.xyz'), f"{self.rp_isolated_geometries_dir}/{name}.xyz")
-                    energy = extract_crest_energy()
+                    shutil.copy(os.path.join(wcd, final_geom), f"{self.rp_isolated_geometries_dir}/{name}.xyz")
+                    if num_atoms !=1 :
+                        energy = extract_crest_energy()
+                    else:
+                        energy = extract_xtb_energy(name)
+                    if self.gibbs:
+                        run_xtb_hessian(final_geom[:-4], charge, uhf, self.proc, solvent_xtb, self.temp)
+                        shutil.move('crest_best_hess.out', f"{name}_hess.out")
+                        energy = extract_xtb_gibbs_free_energy(f'{name}_hess')
 
                 self.energies[name] = self.energies.get(name, 0.0) + energy
 
@@ -157,6 +168,7 @@ class Reaction:
                         end_time_process = time.time()
                         self.logger.info(
                             f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor} in {end_time_process - start_time_process} sec...')
+                        
                 except Exception as e:
                     self.logger.info(e)
                     continue
@@ -173,8 +185,15 @@ class Reaction:
             for f in os.listdir(ts_optimizer.final_guess_dir):
                 if '.log' in f:
                     energy_ts = extract_g16_xtb_energy(os.path.join(ts_optimizer.final_guess_dir, f))
+                if self.gibbs:
+                    cwd = os.getcwd()
+                    os.chdir(ts_optimizer.g16_dir)
+                    xyz_file = ts_optimizer.xyz_file
+                    run_xtb_hessian(xyz_file[:-4], ts_optimizer.charge, ts_optimizer.multiplicity - 1, self.proc, solvent_xtb, self.temp)
+                    energy_ts = extract_xtb_gibbs_free_energy(f'{xyz_file[:-4]}_hess')
+                    os.chdir(cwd)
             self.energies['ts'] = self.energies.get('ts', 0.0) + energy_ts
-            copy_final_files(self.reaction_dir, self.final_outputs)
+            copy_final_files(self.reaction_dir, self.final_outputs) 
         else:
             self.logger.info(
                 f'No TS guess found for {ts_optimizer.rxn_id}; process lasted for {end_time_process - start_time_process} sec...')
@@ -291,10 +310,12 @@ class Reaction:
 
                 if ts_conf_found:
                     self.logger.info('A conformer has been found for the TS')
-                    shutil.copy('ts_conf_dft.xyz', os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.xyz"))
+                    shutil.copy(os.path.join("g16_dir", "ts_guess_0.xyz"), 
+                                os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.xyz"))
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.log"),
                                 os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.log"))
-                    shutil.copy('ts_conf_dft.xyz', os.path.join(final_guess_dir_path, "ts_guess_conf.xyz"))
+                    shutil.copy(os.path.join("g16_dir", "ts_guess_0.xyz"),
+                                os.path.join(final_guess_dir_path, "ts_guess_conf.xyz"))
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.log"),
                                 os.path.join(final_guess_dir_path, "ts_guess_conf.log"))
                     energy_ts = extract_g16_energy(
@@ -329,13 +350,21 @@ class Reaction:
 
                 if ts_conf_found:
                     self.logger.info('A conformer has been found for the TS')
-                    shutil.copy('crest_best.xyz', os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.xyz"))
+                    shutil.copy(os.path.join("g16_dir", "ts_guess_0.xyz"), 
+                                os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.xyz"))
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.log"),
                                 os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.log"))
-                    shutil.copy('crest_best.xyz', os.path.join(final_guess_dir_path, "ts_guess_conf.xyz"))
+                    shutil.copy(os.path.join("g16_dir", "ts_guess_0.xyz"), 
+                                os.path.join(final_guess_dir_path, "ts_guess_conf.xyz"))
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.log"),
                                 os.path.join(final_guess_dir_path, "ts_guess_conf.log"))
                     energy_ts = extract_g16_xtb_energy(os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.log"))
+                    if self.gibbs:
+                        os.chdir('g16_dir')
+                        run_xtb_hessian('ts_guess_0', ts_optimizer.charge, ts_optimizer.multiplicity - 1, self.proc, solvent_xtb, self.temp)
+                        energy_ts = extract_xtb_gibbs_free_energy('ts_guess_0_hess')
+                        os.chdir(wcd)
+
                     if energy_ts < self.energies['ts']:
                         self.logger.info('TS conformer has lowest energy')
                         self.energies['ts'] = energy_ts
