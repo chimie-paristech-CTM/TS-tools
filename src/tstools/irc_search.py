@@ -38,8 +38,8 @@ def extract_irc_geometries(log_path_forward, log_path_reverse):
     geometry_block_forward = extract_geometry_block_from_irc(log_path_forward)
     geometry_block_reverse = extract_geometry_block_from_irc(log_path_reverse)
 
-    write_geometry_block_to_xyz(geometry_block_forward, f'{log_path_forward[:-4]}.xyz', True)
-    write_geometry_block_to_xyz(geometry_block_reverse, f'{log_path_reverse[:-4]}.xyz', True)
+    write_geometry_block_to_xyz(geometry_block_forward, f'{log_path_forward[:-4]}.xyz')
+    write_geometry_block_to_xyz(geometry_block_reverse, f'{log_path_reverse[:-4]}.xyz')
 
 
 def extract_geometry_block_from_irc(log_path):
@@ -52,21 +52,24 @@ def extract_geometry_block_from_irc(log_path):
     Returns:
     List[str]: List of lines containing the geometry block.
     """
-    geometry_start_pattern = re.compile(r'^\s*Cartesian Coordinates \(Ang\):\s*$')
-    geometry_end_pattern = re.compile(r'^\s*CHANGE IN THE REACTION COORDINATE =\s*([+-]?\d*\.\d+)\s*$')
+    geometry_start_pattern = re.compile(r'^\s*Input orientation:\s*$')
+    num_atoms_pattern = re.compile(r"NAtoms=\s+\d+\s+NQM=\s+\d+\s+NQMF=\s+\d+\s+NMMI=\s+\d+\s+NMMIF=\s+\d+")
+
     with open(log_path, 'r') as log_file:
         lines = log_file.readlines()
 
         for i, line in enumerate(lines):
+
+            if num_atoms_pattern.match(line.strip()):
+                num_atoms = int(line.split()[1])
             if geometry_start_pattern.match(line.strip()):
                 geometry_block_start_line = i + 5
-            if geometry_end_pattern.search(line):
-                geometry_block_end_line = i - 1
+            
 
-    return lines[geometry_block_start_line:geometry_block_end_line] 
+    return lines[geometry_block_start_line:geometry_block_start_line+num_atoms] 
 
 
-def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
+def write_geometry_block_to_xyz(geometry_block, output_xyz_path):
     """
     Write a geometry block to an XYZ file.
 
@@ -80,11 +83,8 @@ def write_geometry_block_to_xyz(geometry_block, output_xyz_path, irc=False):
         xyz_file.write(str(len(geometry_block)) + '\n\n')
         # Write the atomic coordinates
         for line in geometry_block:
-            split_line = line.split()
-            if irc:
-                xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[2]):.6f} {float(split_line[3]):.6f} {float(split_line[4]):.6f}\n')
-            else:
-                xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[3]):.6f} {float(split_line[4]):.6f} {float(split_line[5]):.6f}\n')
+            split_line = line.split()    
+            xyz_file.write(f'{atomic_number_to_symbol[int(split_line[1])]} {float(split_line[3]):.6f} {float(split_line[4]):.6f} {float(split_line[5]):.6f}\n')
     
 
 def extract_transition_state_geometry(log_path, output_xyz_path):
@@ -385,14 +385,14 @@ if __name__ == '__main__':
     #path = '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol.log'
     #extract_transition_state_geometry(path, f'{path[:-4]}.xyz')
     #generate_gaussian_irc_input(f'{path[:-4]}.xyz', method='external="/home/thijs/Jensen_xtb_gaussian/profiles_test/extra/xtb_external.py"')
-    #extract_irc_geometries('/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log', 
-    #                       '/Users/thijsstuyver/Desktop/reaction_profile_generator/lol/test_irc_forward.log')
+    #extract_irc_geometries('/Users/javialra97/Desktop/pc/2.Work/16.benchmark_digital_discovery/cyclo_examples/rxn_02873_cyclo/reaction_2873/g16_dir/ts_guess_0_irc_forward.log', 
+    #                       '/Users/javialra97/Desktop/pc/2.Work/16.benchmark_digital_discovery/cyclo_examples/rxn_02873_cyclo/reaction_2873/g16_dir/ts_guess_0_irc_reverse.log')
     # optimize_final_point_irc('lol/ts_guess_4_irc_forward.xyz', 0)
     reaction_correct = compare_molecules_irc(
-        '/Users/thijsstuyver/Desktop/reaction_R8/g16_dir/ts_guess_2_irc_forward.xyz', 
-        '/Users/thijsstuyver/Desktop/reaction_R8/g16_dir/ts_guess_2_irc_reverse.xyz',
-        '/Users/thijsstuyver/Desktop/reaction_R8/rp_geometries/reactants_geometry.xyz', 
-        '/Users/thijsstuyver/Desktop/reaction_R8/rp_geometries/products_geometry.xyz')
+        '/Users/javialra97/Desktop/pc/2.Work/11.ts_tools/TS-tools/rxn_05126/ts_guess_0_irc_forward.xyz', 
+        '/Users/javialra97/Desktop/pc/2.Work/11.ts_tools/TS-tools/rxn_05126/ts_guess_0_irc_reverse.xyz',
+        '/Users/javialra97/Desktop/pc/2.Work/11.ts_tools/TS-tools/rxn_05126/reactants_geometry.xyz', 
+        '/Users/javialra97/Desktop/pc/2.Work/11.ts_tools/TS-tools/rxn_05126/products_geometry.xyz')
     print(reaction_correct)
     #print(reaction_correct)
     #extract_transition_state_geometry('logs/ts_guess_0.log', 'logs/test.xyz')
