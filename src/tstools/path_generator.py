@@ -9,6 +9,7 @@ import copy
 import subprocess
 import shutil
 import random
+import logging
 from itertools import product
 
 from typing import Optional
@@ -28,6 +29,8 @@ xtb = ade.methods.XTB()
 metal_list = ['Al', 'Sb', 'Ag', 'As', 'Ba', 'Be', 'Bi', 'Cd', 'Ca', 'Cr', 'Co', 'Cu', 'Au', 'Fe', 
               'Pb', 'Mg', 'Mn', 'Hg', 'Mo', 'Ni', 'Pd', 'Pt', 'K', 'Rh', 'Rb', 'Ru', 'Sc', 'Ag', 
               'Na', 'Sr', 'Ta', 'Tl', 'Th', 'Ti', 'U', 'V', 'Y', 'Zn', 'Zr']
+
+logger = logging.getLogger("tstools")
 
 class PathGenerator:
     # Constants
@@ -139,7 +142,7 @@ class PathGenerator:
                     if not (self.endpoint_is_product(atoms, coords) and self.beginpoint_is_reactant(atoms, coords)):
                         # If third time incorrect begin-/endpoint is reached, abort
                         if i > 2:
-                            print(f'Incorrect reactant/product formed for {self.rxn_id}')
+                            logger.info(f'Incorrect reactant/product formed for {self.rxn_id}')
                             path_xyz_files = get_path_xyz_files(atoms, coords, fc, energies, potentials)
                             return None, None, None
                         else:
@@ -277,7 +280,7 @@ class PathGenerator:
 
         # print that there is an error with the stereochemistry only when you do a full search, i.e., n_conf > 1
         if n_conf > 1:
-            print(f'No stereo-compatible conformer found for reaction {self.rxn_id}')
+            logger.info(f'No stereo-compatible conformer found for reaction {self.rxn_id}')
 
         return conformer.name
 
@@ -453,20 +456,47 @@ class PathGenerator:
         optimal_distances = {}
         product_smiles = [smi for smi in self.product_smiles.split('.')]
         product_molecules = [Chem.MolFromSmiles(smi, ps) for smi in self.product_smiles.split('.')]
+        reactant_smiles = [smi for smi in self.reactant_smiles.split('.')]
+        reactant_molecules = [Chem.MolFromSmiles(smi, ps) for smi in self.reactant_smiles.split('.')]
         formed_bonds = self.formed_bonds
+        possible_H_abstraction = False
+        logger.info(formed_bonds)
+        if len(formed_bonds) == 1:
+            for bond in formed_bonds:
+                break
+            atom_i = int(bond[0])
+            atom_j = int(bond[1])
+            idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
+            
+            atom_1 = self.reactant_rdkit_mol.GetAtomWithIdx(idx1)
+            atom_2 = self.reactant_rdkit_mol.GetAtomWithIdx(idx2)
 
+            if atom_1.GetSymbol() == "H" or atom_2.GetSymbol() == "H":
+                possible_H_abstraction = True
+                formed_bonds = []
+                formed_bonds.append(bond)
+                for broken_bond in self.broken_bonds:
+                    formed_bonds.append(broken_bond)
+
+        logger.info(formed_bonds)
         atoms_involved_in_formed_bonds = []
 
-        for bond in formed_bonds:
+        for i, bond in enumerate(formed_bonds):
+            threshold_H = 0.0
             atom_i = int(bond[0])
             atom_j = int(bond[1])
 
             idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
-
-            mol, mol_dict, smiles = self.get_mol_and_mol_dict(atom_i, atom_j, product_molecules, product_smiles)
+            
+            if possible_H_abstraction and i >= 1:
+                threshold_H = 1.0
+                mol, mol_dict, smiles = self.get_mol_and_mol_dict_r(atom_i, atom_j, reactant_molecules, reactant_smiles)
+            else:
+                mol, mol_dict, smiles = self.get_mol_and_mol_dict_p(atom_i, atom_j, product_molecules, product_smiles)
+            
             current_bond_length = self.obtain_current_distance(mol, mol_dict, smiles, atom_i, atom_j)
- 
-            optimal_distances[idx1, idx2] = current_bond_length
+
+            optimal_distances[idx1, idx2] = current_bond_length + threshold_H
 
             # for metal-containing bonds, add the atoms that involve main group elements to the atoms_involved_in_formed_bonds list
             if mol.GetAtomWithIdx(mol_dict[atom_i]).GetSymbol() not in metal_list and \
@@ -480,7 +510,7 @@ class PathGenerator:
             for atom_i, atom_j in list(product(atoms_involved_in_formed_bonds, repeat=2)):
                 if (min(atom_i, atom_j), max(atom_i, atom_j)) in self.broken_bonds:
                     idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
-                    mol, mol_dict, smiles = self.get_mol_and_mol_dict(atom_i, atom_j, product_molecules, product_smiles)
+                    mol, mol_dict, smiles = self.get_mol_and_mol_dict_p(atom_i, atom_j, product_molecules, product_smiles)
                     current_distance = self.obtain_current_distance(mol, mol_dict, smiles, atom_i, atom_j)
                     optimal_distances[min(idx1, idx2), max(idx1, idx2)] = current_distance
                     break
@@ -489,7 +519,7 @@ class PathGenerator:
 
         return optimal_distances
     
-    def get_mol_and_mol_dict(self, atom_i, atom_j, product_molecules, product_smiles):
+    def get_mol_and_mol_dict_p(self, atom_i, atom_j, product_molecules, product_smiles):
         """
         Retrieve the molecule containing atoms 'atom_i' and 'atom_j' and create a dictionary
         mapping atom map numbers to atom indices in this molecule.
@@ -509,6 +539,34 @@ class PathGenerator:
         if self.owning_dict_psmiles[atom_i] == self.owning_dict_psmiles[atom_j]:
                 mol = copy.deepcopy(product_molecules[self.owning_dict_psmiles[atom_i]])
                 smiles = product_smiles[self.owning_dict_psmiles[atom_i]]
+        else:
+            raise KeyError("Atoms in the bond belong to different molecules.")
+
+        mol_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in mol.GetAtoms()}
+        
+        return mol, mol_dict, smiles
+
+
+    def get_mol_and_mol_dict_r(self, atom_i, atom_j, reactant_molecules, reactant_smiles):
+        """
+        Retrieve the molecule containing atoms 'atom_i' and 'atom_j' and create a dictionary
+        mapping atom map numbers to atom indices in this molecule.
+
+        Parameters:
+        - atom_i (int): Index of the first atom in the bond.
+        - atom_j (int): Index of the second atom in the bond.
+        - reactant_molecules (dict): Dictionary mapping atom indices to corresponding molecules.
+
+        Returns:
+        - mol (rdkit.Chem.Mol): A deep copy of the molecule containing 'atom_i' and 'atom_j'.
+        - mol_dict (dict): A dictionary mapping atom map numbers to atom indices in 'mol'.
+
+        Raises:
+        - KeyError: If atoms 'atom_i' and 'atom_j' belong to different molecules.
+        """
+        if self.owning_dict_rsmiles[atom_i] == self.owning_dict_rsmiles[atom_j]:
+                mol = copy.deepcopy(reactant_molecules[self.owning_dict_rsmiles[atom_i]])
+                smiles = reactant_smiles[self.owning_dict_rsmiles[atom_i]]
         else:
             raise KeyError("Atoms in the bond belong to different molecules.")
 
@@ -833,6 +891,7 @@ def get_path_xyz_files(atoms, coords, force_constant, energies, potentials):
     """
     path_xyz_files = []
     folder_name = f'path_xyzs_{force_constant:.4f}'
+    logger.info(f'Generating the path in {folder_name}')
     if folder_name in os.listdir():
         shutil.rmtree(folder_name)
     os.makedirs(folder_name)
