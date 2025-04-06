@@ -54,7 +54,7 @@ class PathGenerator:
     STRETCH_FACTOR_UPPER_BOUND = 1.3
 
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
-                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100, proc=2):
+                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100, proc=2, add_broken_bonds=False):
         """
         Initialize a PathGenerator object.
 
@@ -86,6 +86,7 @@ class PathGenerator:
         self.multiplicity = multiplicity
         self.n_conf = n_conf
         self.proc = proc
+        self.add_broken_bonds = add_broken_bonds
 
         os.chdir(self.path_dir)
 
@@ -460,8 +461,8 @@ class PathGenerator:
         reactant_molecules = [Chem.MolFromSmiles(smi, ps) for smi in self.reactant_smiles.split('.')]
         formed_bonds = self.formed_bonds
         possible_H_abstraction = False
-        logger.info(formed_bonds)
-        if len(formed_bonds) == 1:
+        
+        if len(formed_bonds) == 1 and self.add_broken_bonds:
             for bond in formed_bonds:
                 break
             atom_i = int(bond[0])
@@ -478,7 +479,6 @@ class PathGenerator:
                 for broken_bond in self.broken_bonds:
                     formed_bonds.append(broken_bond)
 
-        logger.info(formed_bonds)
         atoms_involved_in_formed_bonds = []
 
         for i, bond in enumerate(formed_bonds):

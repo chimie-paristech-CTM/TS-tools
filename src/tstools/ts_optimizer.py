@@ -2,22 +2,26 @@ import numpy as np
 import os
 import shutil
 from rdkit import Chem
+import logging
 
 from tstools.path_generator import PathGenerator
 from tstools.path_analyzer import PathAnalyzer
-from tstools.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory
-from tstools.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, compare_molecules_irc
-from tstools.confirm_ts_guess import validate_ts_guess
+from tstools.utils import xyz_to_gaussian_input, run_g16_ts_optimization, run_irc, remove_files_in_directory, save_files_in_directory
+from tstools.irc_search import generate_gaussian_irc_input, extract_transition_state_geometry, extract_irc_geometries, \
+                                compare_molecules_irc, extract_highest_point_number
+from tstools.confirm_ts_guess import validate_ts_guess, displaced_species_after_short_irc
 
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
+logger = logging.getLogger("tstools")
+
 class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, xtb_solvent=None, dft_solvent=None,
                  reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
                  freq_cut_off=50, guess_found=False, mem='2GB', proc=2, max_cycles=30, intermediate_check=False,
-                 reaction_dir=None):
+                 reaction_dir=None, add_broken_bonds=False):
         """
         Initialize a TSOptimizer instance.
 
@@ -52,6 +56,7 @@ class TSOptimizer:
         self.mem = mem
         self.proc = proc
         self.max_cycles = max_cycles
+        self.add_broken_bonds = False
 
         self.charge, self.multiplicity = self.get_charge_and_multiplicity()
 
@@ -106,6 +111,7 @@ class TSOptimizer:
                 i, guess_file, method=method, basis_set=basis_set, extra_commands=extra_commands)
         
             os.chdir(self.reaction_dir)
+            logger.info(f"Running TS optimization of {guess_file}")
             log_file = run_g16_ts_optimization(ts_search_inp_file)
 
             if self.confirm_opt_transition_state(log_file, xtb, method, basis_set):
@@ -114,6 +120,8 @@ class TSOptimizer:
                 self.save_final_ts_guess_files(xyz_file, log_file)
                 self.ts_found = True
                 break
+        
+        save_files_in_directory(self.g16_dir, 'ts_attempt')
 
     def set_ts_guess_list(self, reactive_complex_factor):
         """
@@ -155,23 +163,23 @@ class TSOptimizer:
         if '.' in self.reactant_smiles:
             path = PathGenerator(
                 self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc
+                self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc, add_broken_bonds=self.add_broken_bonds
             )
         else:
             # Quick run to see if inversion is needed
             path = PathGenerator(
             self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-            self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1, proc=self.proc
+            self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=1, proc=self.proc, add_broken_bonds=self.add_broken_bonds
             )
             if len(path.formed_bonds) < len(path.broken_bonds) and '.' not in self.reactant_smiles:
                 path = PathGenerator(
                     self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc
+                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc, add_broken_bonds=self.add_broken_bonds
                 )
             else:
                 path = PathGenerator(
                     self.reactant_smiles, self.product_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc
+                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc, add_broken_bonds=self.add_broken_bonds
                 )
 
         return path
@@ -208,10 +216,10 @@ class TSOptimizer:
                         self.reaction_dir, self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent)
                     if len(guesses_list) > 0:
                         self.barrier_estimate = analyzer.barrier_estimate
-                        print(f'Barrier estimate for reaction {path.rxn_id} with reactive complex factor {path.reactive_complex_factor}: {self.barrier_estimate} kcal/mol')
+                        logger.info(f'Barrier estimate for reaction {path.rxn_id} with reactive complex factor {path.reactive_complex_factor}: {self.barrier_estimate} kcal/mol')
                         return guesses_list
                 else:
-                    print(f'Incorrect path encountered for {path.rxn_id}!')
+                    logger.info(f'Incorrect path encountered for {path.rxn_id}!')
                     break
 
         return []
@@ -287,7 +295,7 @@ class TSOptimizer:
 
     def confirm_opt_transition_state(self, log_file, xtb=True, method='UB3LYP', basis_set='6-31G**'):
         """
-        Confirm the optimized transition state by performing IRC calculations.
+        Confirm the optimized transition state by performing IRC calculations or displacing the geometry along the imaginary normal mode.
 
         Parameters:
         - log_file (str): Path to the Gaussian log file.
@@ -321,12 +329,18 @@ class TSOptimizer:
                     charge=self.charge, multiplicity=self.multiplicity, stepsize=15
                 )
 
+            logger.info(f"Running IRC for {os.path.splitext(log_file)[0]}")
             run_irc(irc_input_file_f)
             run_irc(irc_input_file_r)
             
-            extract_irc_geometries(f'{os.path.splitext(irc_input_file_f)[0]}.log',
-                               f'{os.path.splitext(irc_input_file_r)[0]}.log')
+            point_f = extract_highest_point_number(f'{os.path.splitext(irc_input_file_f)[0]}.log')
+            logger.info(f"IRC forward finished after {point_f} steps")
+            point_r = extract_highest_point_number(f'{os.path.splitext(irc_input_file_r)[0]}.log')
+            logger.info(f"IRC reverse finished after {point_r} steps")
 
+            extract_irc_geometries(f'{os.path.splitext(irc_input_file_f)[0]}.log',
+                                   f'{os.path.splitext(irc_input_file_r)[0]}.log')
+        
             reaction_correct = compare_molecules_irc(
                 f'{os.path.splitext(irc_input_file_f)[0]}.xyz',
                 f'{os.path.splitext(irc_input_file_r)[0]}.xyz',
@@ -334,7 +348,7 @@ class TSOptimizer:
                 os.path.join(self.rp_geometries_dir, 'products_geometry.xyz'),
                 self.charge, self.multiplicity, self.xtb_solvent, self.proc
             )
-
+            logger.info(f'Final IRC points match the reactants and products? --> {reaction_correct}')
             return reaction_correct
 
         except Exception:

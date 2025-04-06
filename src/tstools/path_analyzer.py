@@ -1,6 +1,7 @@
 import numpy as np
 import autode as ade
 import os
+import logging
 from scipy.spatial import distance_matrix
 from collections import defaultdict
 import subprocess
@@ -19,6 +20,7 @@ RDLogger.DisableLog('rdApp.*')
 from tstools.confirm_ts_guess import validate_ts_guess
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn.decomposition._pca")
+logger = logging.getLogger("tstools")
 
 hartree_to_kcal = 627.509474
 
@@ -292,8 +294,8 @@ class PathAnalyzer:
         total_explained_var = explained_var_ratio_syn + explained_var_ratio_asyn
 
         if total_explained_var < 0.95 or explained_var_ratio_syn < 0.6:
-            print(f'WARNING: reactive path for {self.path.rxn_id} exhibits atypical behavior:') 
-            print(f'total explained variance amounts to {total_explained_var}, explained variance by synchronous path amounts to {explained_var_ratio_syn}')
+            logger.info(f'WARNING: reactive path for {self.path.rxn_id} exhibits atypical behavior:') 
+            logger.info(f'total explained variance amounts to {total_explained_var}, explained variance by synchronous path amounts to {explained_var_ratio_syn}')
 
         # scale the individual components
         synchronous_scaler = MinMaxScaler()
@@ -432,7 +434,7 @@ class PathAnalyzer:
                     else:
                         reaction_smiles2 = None
                 except:
-                    print('Generation of second reaction SMILES for autocatalytic reaction failed')
+                    logger.info('Generation of second reaction SMILES for autocatalytic reaction failed')
                     reaction_smiles2 = f'{mapped_intermediate_smiles}.{".".join(unaffected_molecules)}>>{self.path.product_smiles}' # if the makeshift code below doesn't work, then just continue with the extended SMILES
         else:
             reaction_smiles2 = f'{mapped_intermediate_smiles}>>{self.path.product_smiles}'

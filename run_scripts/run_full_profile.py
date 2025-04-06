@@ -2,7 +2,10 @@ import time
 import os
 import argparse
 from tstools.reaction import Reaction
-from tstools.utils import setup_dir, get_reaction_list, create_logger
+from tstools.utils import setup_dir, get_reaction_list
+import logging
+
+logger = logging.getLogger("tstools")
 
 
 def get_args():
@@ -39,11 +42,11 @@ def get_args():
     return parser.parse_args()
 
 
-def run_individual_reaction(idx, rxn_smiles, xtb_external_path, logger, solvent_xtb, solvent_dft, dft_validation,
+def run_individual_reaction(idx, rxn_smiles, xtb_external_path, solvent_xtb, solvent_dft, dft_validation,
                             reactive_complex_factors_intra, reactive_complex_factors_inter, num_conf, nproc, mem,
                             functional, basis_set):
 
-    rxn = Reaction(idx, rxn_smiles, xtb_external_path, logger, functional=functional, basis_set=basis_set, mem=mem,
+    rxn = Reaction(idx, rxn_smiles, xtb_external_path, functional=functional, basis_set=basis_set, mem=mem,
                    proc=nproc, dft_validation=dft_validation)
 
     t0 = time.time()

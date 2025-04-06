@@ -1,5 +1,6 @@
 import os
 from rdkit import Chem
+from glob import glob
 import subprocess
 import shutil
 import time
@@ -8,6 +9,7 @@ import logging
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
+logger = logging.getLogger("tstools")
 
 def xyz_to_gaussian_input(xyz_file, output_file, method='UB3LYP', basis_set='6-31G(d,p)', 
                           extra_commands='opt=(calcfc,ts, noeigen) freq=noraman', charge=0, 
@@ -293,6 +295,40 @@ def remove_files_in_directory(directory):
 
     except Exception as e:
         print(f"Error during file removal: {e}")
+
+
+def save_files_in_directory(directory, folder_name):
+    """
+    Save all files of a directory into a backup folder.
+
+    Args:
+
+        directory (str): Path to the directory.
+        folder_name (str): Name of the backup folder.
+
+    Returns:
+
+        None
+    """
+    try:
+        # List all items in the directory
+        
+        idx = len(glob(f"{os.path.join(directory, folder_name)}*"))
+        folder_path = os.path.join(directory, f'{folder_name}_{idx}')
+        os.makedirs(f'{folder_path}')
+        items = os.listdir(directory)
+
+        # Iterate over each item and move only files
+        for item_name in items:
+            item_path = os.path.join(directory, item_name)
+
+            if os.path.isfile(item_path):
+                shutil.move(item_path, folder_path)
+            elif os.path.isdir(item_path):
+                continue
+
+    except Exception as e:
+        logger.info(f"Error during saving file: {e}")
 
 
 def get_reaction_list(filename):
@@ -649,35 +685,34 @@ def extract_g16_xtb_energy(filename):
     return energy
 
 
-def create_logger(name='output.log') -> logging.Logger:
-    """
-    Creates a logger with a stream handler and two file handlers.
+def setup_logger():
+    """_summary_
 
-    The stream handler prints to the screen depending on the value of `quiet`.
-    One file handler (verbose.log) saves all logs, the other (quiet.log) only saves important info.
-
-    Args:
-
-        name: Name the log.
-
-    Return:
-
-        logger.
+    Returns:
+        _type_: _description_
     """
 
-    logger = logging.getLogger('final.log')
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
+    logger = logging.getLogger("tstools")
+    logger.setLevel(logging.DEBUG)  # Set the logging level
 
-    # create file handler which logs even debug messages
-    fh = logging.FileHandler(f'{name}')
-    fh.setLevel(logging.DEBUG)
-    # create console handler with a higher log level
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.ERROR)
-    # add the handlers to the logger
-    logger.addHandler(fh)
-    logger.addHandler(ch)
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+
+    # Create file handler
+    file_handler = logging.FileHandler("output.log")
+    file_handler.setLevel(logging.INFO)
+
+    # Define log format
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+
+    # Add handlers to logger
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
 
     return logger
 
@@ -804,6 +839,8 @@ def extract_xtb_gibbs_free_energy(name):
         if 'TOTAL FREE ENERGY' in line:
             return float(line.split()[4])
 
+
+setup_logger()
     
 
 

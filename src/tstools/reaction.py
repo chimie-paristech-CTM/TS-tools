@@ -18,10 +18,11 @@ from tstools.utils import remove_files_in_directory, copy_final_files, extract_g
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
 
+logger = logging.getLogger("tstools")
 
 class Reaction:
 
-    def __init__(self, rxn_id, reaction_smiles, xtb_external_path, logger, functional='UPBE1PBE',
+    def __init__(self, rxn_id, reaction_smiles, xtb_external_path, functional='UPBE1PBE',
                  basis_set='def2svp', mem='2GB', proc=2, max_cycles=30, dft_validation=False, gibbs=False, temperature=298.15):
         """
         Initialize a Reaction instance.
@@ -47,7 +48,6 @@ class Reaction:
         self.mem = mem
         self.proc = proc
         self.max_cycles = max_cycles
-        self.logger = logger
         self.dft_validation = dft_validation
         self.gibbs = gibbs
         self.temp = temperature
@@ -88,7 +88,7 @@ class Reaction:
                 charge, multiplicity = get_charge_and_multiplicity(smi)
                 uhf = multiplicity - 1
                 num_atoms = rdkit_mol.GetNumAtoms()
-                self.logger.info(f"Conformational search of {name}")
+                logger.info(f"Conformational search of {name}")
                 params = AllChem.ETKDGv3()
                 params.randomSeed = 3
                 AllChem.EmbedMultipleConfs(rdkit_mol, 1, params)
@@ -113,7 +113,7 @@ class Reaction:
                 self.energies[name] = self.energies.get(name, 0.0) + energy
 
     def get_ts(self, reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
-               freq_cut_off=150, solvent_xtb=None, solvent_dft=None, intermediate_check=False):
+               freq_cut_off=150, solvent_xtb=None, solvent_dft=None, intermediate_check=False, add_broken_bonds=False):
         """
         Optimize an individual transition state. If a plausible intermediate is encountered
         along a reactive path twice, we assume a stepwise mechanism.
@@ -135,7 +135,7 @@ class Reaction:
         ts_optimizer = TSOptimizer(self.rxn_id, self.rxn_smiles, self.xtb_external_path,
                                    solvent_xtb, solvent_dft, reactive_complex_factor_values_inter,
                                    reactive_complex_factor_values_intra, freq_cut_off, mem=self.mem, proc=self.proc,
-                                   intermediate_check=intermediate_check, reaction_dir=self.reaction_dir)
+                                   intermediate_check=intermediate_check, reaction_dir=self.reaction_dir, add_broken_bonds=add_broken_bonds)
 
         # First select the set of reactive_complex factor values to try
         start_time_process = time.time()
@@ -147,7 +147,7 @@ class Reaction:
             else:
                 reactive_complex_factor_values = ts_optimizer.reactive_complex_factor_values_inter
         except Exception as e:
-            self.logger.info(e)
+            logger.info(e)
             return None
 
         ts_found = False
@@ -155,7 +155,8 @@ class Reaction:
         for reactive_complex_factor in reactive_complex_factor_values:
             if ts_found:
                 break
-            for _ in range(2):
+            for i in range(2):
+                logger.info(f'Attempt {i} with reactive complex factor = {reactive_complex_factor}')
                 if ts_found:
                     break
                 try:
@@ -166,17 +167,17 @@ class Reaction:
                     if ts_found:
                         self.ts_found = True
                         end_time_process = time.time()
-                        self.logger.info(
+                        logger.info(
                             f'Final TS guess found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor} in {end_time_process - start_time_process} sec...')
                         
                 except Exception as e:
-                    self.logger.info(e)
+                    logger.info(e)
                     continue
 
         end_time_process = time.time()
 
         if ts_optimizer.stepwise_reaction_smiles is not None:
-            self.logger.info(
+            logger.info(
                 f'Potential intermediate found for {ts_optimizer.rxn_id} for reactive complex factor {reactive_complex_factor} in {end_time_process - start_time_process} sec...')
             potentially_stepwise_reactions = [(f'{ts_optimizer.rxn_id}a', ts_optimizer.stepwise_reaction_smiles[0]),
                                               (f'{ts_optimizer.rxn_id}b', ts_optimizer.stepwise_reaction_smiles[1])]
@@ -195,7 +196,7 @@ class Reaction:
             self.energies['ts'] = self.energies.get('ts', 0.0) + energy_ts
             copy_final_files(self.reaction_dir, self.final_outputs) 
         else:
-            self.logger.info(
+            logger.info(
                 f'No TS guess found for {ts_optimizer.rxn_id}; process lasted for {end_time_process - start_time_process} sec...')
 
         if self.dft_validation and ts_found:
@@ -227,10 +228,10 @@ class Reaction:
                     ts_validated = ts_optimizer_dft.ts_found
                     end_time_process = time.time()
                     if ts_validated:
-                        self.logger.info(f"TS validated at {self.functional}/{self.basis_set} level of theory, "
-                                         f"process lasted for {end_time_process - start_time_process} sec...'")
+                        logger.info(f"TS validated at {self.functional}/{self.basis_set} level of theory, "
+                                    f"process lasted for {end_time_process - start_time_process} sec...'")
                     else:
-                        self.logger.info("TS was not validated at DFT level of theory")
+                        logger.info("TS was not validated at DFT level of theory")
                         self.ts_found = False
 
                 except Exception as e:
@@ -273,7 +274,7 @@ class Reaction:
         geom = extract_geom_from_xyz(ts_guess_file)
         wcd = self.make_sub_dir(os.path.join(self.conf_dir, 'ts'))  # working conformer directory
         os.chdir(wcd)
-        self.logger.info("Conformational search of TS")
+        logger.info("Conformational search of TS")
         write_xyz_file_from_geom(geom, os.path.join(wcd, 'ts_guess_conf'))
         rdkit_mol = Chem.MolFromSmiles(self.reactant_smiles, ps)
         charge = Chem.GetFormalCharge(rdkit_mol)
@@ -309,7 +310,7 @@ class Reaction:
                 ts_conf_found = ts_optimizer.ts_found
 
                 if ts_conf_found:
-                    self.logger.info('A conformer has been found for the TS')
+                    logger.info('A conformer has been found for the TS')
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.xyz"), 
                                 os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.xyz"))
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.log"),
@@ -321,12 +322,12 @@ class Reaction:
                     energy_ts = extract_g16_energy(
                         os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.log"))
                     if energy_ts < self.energies['ts']:
-                        self.logger.info('TS conformer has lowest energy')
+                        logger.info('TS conformer has lowest energy')
                         self.energies['ts'] = energy_ts
                     else:
-                        self.logger.info('TS conformer does not have lowest energy')
+                        logger.info('TS conformer does not have lowest energy')
                 else:
-                    self.logger.info("TS conformer guess is not a TS")
+                    logger.info("TS conformer guess is not a TS")
 
             else:
                 ts_optimizer = TSOptimizer(self.rxn_id, self.rxn_smiles, self.xtb_external_path, solvent_xtb,
@@ -349,7 +350,7 @@ class Reaction:
                 ts_conf_found = ts_optimizer.ts_found
 
                 if ts_conf_found:
-                    self.logger.info('A conformer has been found for the TS')
+                    logger.info('A conformer has been found for the TS')
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.xyz"), 
                                 os.path.join(self.reaction_dir, "final_ts_guess/ts_guess_conf.xyz"))
                     shutil.copy(os.path.join("g16_dir", "ts_guess_0.log"),
@@ -366,15 +367,15 @@ class Reaction:
                         os.chdir(wcd)
 
                     if energy_ts < self.energies['ts']:
-                        self.logger.info('TS conformer has lowest energy')
+                        logger.info('TS conformer has lowest energy')
                         self.energies['ts'] = energy_ts
                     else:
-                        self.logger.info('TS conformer does not have lowest energy')
+                        logger.info('TS conformer does not have lowest energy')
                 else:
-                    self.logger.info("TS conformer guess is not a TS")
+                    logger.info("TS conformer guess is not a TS")
 
         else:
-            self.logger.info('Error during conformational search of TS')
+            logger.info('Error during conformational search of TS')
 
 
     def make_work_dir(self):
@@ -415,7 +416,7 @@ class Reaction:
         Plot the reaction profile
         """
 
-        self.logger.info("Plotting reaction profile")
+        logger.info("Plotting reaction profile")
 
         import matplotlib.pyplot as plt
 
