@@ -18,6 +18,7 @@ from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*') 
 
 from tstools.confirm_ts_guess import validate_ts_guess
+from tstools.utils import compute_angle
 
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn.decomposition._pca")
 logger = logging.getLogger("tstools")
@@ -161,7 +162,7 @@ class PathAnalyzer:
 
         return None
         
-    def select_ts_guesses(self, reaction_dir, freq_cut_off, charge, multiplicity, solvent):
+    def select_ts_guesses(self, reaction_dir, freq_cut_off, charge, multiplicity, solvent, sn2=False):
         """
         Ranks and filters transition state (TS) guesses based on energy, structural similarity, and vibrational analysis.
 
@@ -197,6 +198,9 @@ class PathAnalyzer:
 
         validated_indices = [i for i in similarity_filtered_indices if validate_ts_guess(
                     self.path_xyz_files[i], reaction_dir, freq_cut_off, charge, multiplicity, solvent) == True]
+        
+        if sn2:
+            validated_indices = [i for i in similarity_filtered_indices if check_collinearity_sn2(self.path_xyz_files[i]) == True]
 
         guesses_list = [self.path_xyz_files[i] for i in validated_indices]
 
@@ -726,3 +730,33 @@ def optimize_candidate_intermediate(path, input_file, proc):
         raise RuntimeError(f'Error during XTB optimization: {e}')
         
     os.rename('xtbopt.xyz', f'candidate_intermediate_opt.xyz')
+
+
+def check_collinearity_sn2(xyz_file):
+    """
+    Check if the Sn2 system is colinear
+
+    Args:
+        xyz_file: XYZ file with the geometry
+
+    Returns:
+        bool: True or False
+    """
+
+    with open('linear_system.txt', 'r') as f:
+        idx1, idx2, idx3 = f.readlines()[0].split()
+    
+    with open(xyz_file, 'r') as f:
+        geom = f.readlines()[2:]
+    
+    coord_1 = np.array(geom[int(idx1)].split()[1:], dtype=float)
+    coord_2 = np.array(geom[int(idx2)].split()[1:], dtype=float)
+    coord_3 = np.array(geom[int(idx3)].split()[1:], dtype=float)
+
+    angle = compute_angle(coord_1, coord_2, coord_3)
+
+    if 150 < angle < 210:
+        return True
+    else:
+        return False
+

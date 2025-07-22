@@ -78,7 +78,7 @@ class Reaction:
 
             None
         """
-
+        rp_geometries_dir = os.path.join(self.reaction_dir, 'rp_geometries')
         for side, smiles in zip(['r', 'p'], [self.reactant_smiles, self.product_smiles]):
             for idx, smi in enumerate(smiles.split('.')):
                 name = f"{side}{idx}"
@@ -89,10 +89,14 @@ class Reaction:
                 uhf = multiplicity - 1
                 num_atoms = rdkit_mol.GetNumAtoms()
                 logger.info(f"Conformational search of {name}")
-                params = AllChem.ETKDGv3()
-                params.randomSeed = 3
-                AllChem.EmbedMultipleConfs(rdkit_mol, 1, params)
-                write_xyz_file_from_rdkit_conf(rdkit_mol, os.path.join(wcd, name))
+                shutil.copy(os.path.join(rp_geometries_dir, f'{name}.xyz'), wcd)
+                #params = AllChem.ETKDGv3()
+                #params.randomSeed = 3
+                #AllChem.EmbedMultipleConfs(rdkit_mol, 1, params)
+                #if rdkit_mol.GetNumConformers() == 0:
+                #    logger.info(f"Skipping conformational search of {name}, no geometry obtained with RDKit")
+                #    continue
+                #write_xyz_file_from_rdkit_conf(rdkit_mol, os.path.join(wcd, name))
                 run_crest(os.path.join(wcd, name), charge, uhf, None, self.proc, solvent_xtb, num_atoms)
                 final_geom = 'crest_best.xyz' if num_atoms != 1 else f'{name}.xyz'
                 if self.dft_validation:
@@ -113,7 +117,7 @@ class Reaction:
                 self.energies[name] = self.energies.get(name, 0.0) + energy
 
     def get_ts(self, reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
-               freq_cut_off=150, solvent_xtb=None, solvent_dft=None, intermediate_check=False, add_broken_bonds=False):
+               freq_cut_off=150, solvent_xtb=None, solvent_dft=None, intermediate_check=False, add_broken_bonds=False, sn2=False):
         """
         Optimize an individual transition state. If a plausible intermediate is encountered
         along a reactive path twice, we assume a stepwise mechanism.
@@ -135,7 +139,7 @@ class Reaction:
         ts_optimizer = TSOptimizer(self.rxn_id, self.rxn_smiles, self.xtb_external_path,
                                    solvent_xtb, solvent_dft, reactive_complex_factor_values_inter,
                                    reactive_complex_factor_values_intra, freq_cut_off, mem=self.mem, proc=self.proc,
-                                   intermediate_check=intermediate_check, reaction_dir=self.reaction_dir, add_broken_bonds=add_broken_bonds)
+                                   intermediate_check=intermediate_check, reaction_dir=self.reaction_dir, add_broken_bonds=add_broken_bonds, sn2=sn2)
 
         # First select the set of reactive_complex factor values to try
         start_time_process = time.time()
@@ -156,9 +160,9 @@ class Reaction:
             if ts_found:
                 break
             for i in range(2):
-                logger.info(f'Attempt {i} with reactive complex factor = {reactive_complex_factor}')
                 if ts_found:
                     break
+                logger.info(f'Attempt {i} with reactive complex factor = {reactive_complex_factor}')
                 try:
                     ts_optimizer.set_ts_guess_list(reactive_complex_factor)
                     ts_optimizer.determine_ts()

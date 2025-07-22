@@ -5,6 +5,7 @@ import subprocess
 import shutil
 import time
 import logging
+import numpy as np
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -839,9 +840,19 @@ def extract_xtb_gibbs_free_energy(name):
         if 'TOTAL FREE ENERGY' in line:
             return float(line.split()[4])
 
+def compute_angle(coord_1, coord_2, coord_3):
+    
+    v1 = coord_1 - coord_2
+    v2 = coord_3 - coord_2
+
+    cos_angle = np.dot(v1, v2)/ (np.linalg.norm(v1) * np.linalg.norm(v2))
+    angle = np.arccos(cos_angle)
+
+    return np.degrees(angle) 
+
+
 
 setup_logger()
-    
 
 
 if __name__ == '__main__':

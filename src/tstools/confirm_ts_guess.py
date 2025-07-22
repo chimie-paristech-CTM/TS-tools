@@ -284,3 +284,69 @@ def read_negative_frequencies(filename):
                 return negative_frequencies
 
 
+def displaced_species_after_short_irc(non_eq_file, path, charge, multiplicity, solvent, proc):
+    """
+    Once the IRC fails with less than 15 points, displaced the latest structure along the reaction mode and optimize the final point
+
+    Args:
+        non_eq_file (str): The directory containing non-equilibrium files.
+        path (str): The path containing the reactant and product xyz-files.
+        charge (int): The charge of the system.
+        multiplicity (int): The multiplicity of the system.
+        solvent (str): The name of the solvent.
+
+    Returns:
+        tuple: A tuple containing the following information:
+            - float: Frequency of the TS.
+            - dict: Active bonds involved in the imaginary mode, with bond indices as keys and displacement values as values.
+            - dict: Extra bonds involved in the imaginary mode, with bond indices as keys and displacement values as values.
+            - set: Active bonds forming during the TS.
+            - set: Active bonds breaking during the TS.
+            - numpy.ndarray: Distance matrix for reactant molecules.
+            - numpy.ndarray: Distance matrix for product molecules.
+            - numpy.ndarray: Distance matrix for the TS geometry.
+
+    This function analyzes the provided IRC directory to determine if imaginary mode correspond with the correct bond forming/breaking after the IRC
+    fails prematurely
+
+    Note:
+    - The bond displacement cutoff (cut_off) is used to filter small bond displacements. 
+        Bonds with displacements below this threshold are ignored.
+    """
+    # Obtain reactant, product, and transition state molecules
+    reactant_file, product_file = get_xyzs(path)
+    reactant, product, non_eq_mol = get_ade_molecules(reactant_file, product_file, non_eq_file, charge, multiplicity)   
+
+    # Extracted the frequency from the TS optimization
+    normal_mode, freq = read_first_normal_mode('g98.out')
+    f_displaced_species = displaced_species_along_mode(non_eq_mol, normal_mode, disp_factor=1)
+    b_displaced_species = displaced_species_along_mode(reactant, normal_mode, disp_factor=-1)
+
+    # Compute distance matrices -- TS geometry obtained through displacement along imaginary mode
+    f_distances = distance_matrix(f_displaced_species.coordinates, f_displaced_species.coordinates)
+    b_distances = distance_matrix(b_displaced_species.coordinates, b_displaced_species.coordinates)
+
+    # Compute delta_mode
+    delta_mode = f_distances - b_distances
+
+    # Get all the bonds in both reactants and products
+    all_bonds = set(product.graph.edges).union(set(reactant.graph.edges))
+
+    # Identify active forming and breaking bonds
+    active_bonds_forming = set(product.graph.edges).difference(set(reactant.graph.edges))
+    active_bonds_breaking = set(reactant.graph.edges).difference(set(product.graph.edges))
+    active_bonds = active_bonds_forming.union(active_bonds_breaking)
+
+    # Check if main bond displacement in mode corresponds to active bond
+    displacement_dict = {}
+    for bond in all_bonds:
+        displacement_dict[bond] = abs(delta_mode[bond[0],bond[1]])
+
+    max_displacement_bond = max(displacement_dict, key=displacement_dict.get)
+
+    if max_displacement_bond in active_bonds:
+        main_displacement_is_active = True
+    else:
+        main_displacement_is_active = False
+    
+    return freq, main_displacement_is_active

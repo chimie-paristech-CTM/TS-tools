@@ -21,7 +21,7 @@ class TSOptimizer:
     def __init__(self, rxn_id, reaction_smiles, xtb_external_path, xtb_solvent=None, dft_solvent=None,
                  reactive_complex_factor_values_inter=[2.5], reactive_complex_factor_values_intra=[1.1],
                  freq_cut_off=50, guess_found=False, mem='2GB', proc=2, max_cycles=30, intermediate_check=False,
-                 reaction_dir=None, add_broken_bonds=False):
+                 reaction_dir=None, add_broken_bonds=False, sn2=False):
         """
         Initialize a TSOptimizer instance.
 
@@ -56,7 +56,8 @@ class TSOptimizer:
         self.mem = mem
         self.proc = proc
         self.max_cycles = max_cycles
-        self.add_broken_bonds = False
+        self.add_broken_bonds = add_broken_bonds
+        self.sn2 = sn2
 
         self.charge, self.multiplicity = self.get_charge_and_multiplicity()
 
@@ -121,7 +122,8 @@ class TSOptimizer:
                 self.ts_found = True
                 break
         
-        save_files_in_directory(self.g16_dir, 'ts_attempt')
+        if not self.ts_found:
+            save_files_in_directory(self.g16_dir, 'ts_attempt')
 
     def set_ts_guess_list(self, reactive_complex_factor):
         """
@@ -174,7 +176,7 @@ class TSOptimizer:
             if len(path.formed_bonds) < len(path.broken_bonds) and '.' not in self.reactant_smiles:
                 path = PathGenerator(
                     self.product_smiles, self.reactant_smiles, self.rxn_id, self.path_dir, self.rp_geometries_dir,
-                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc, add_broken_bonds=self.add_broken_bonds
+                    self.xtb_solvent, reactive_complex_factor, self.freq_cut_off, self.charge, self.multiplicity, n_conf=n_conf, proc=self.proc, add_broken_bonds=self.add_broken_bonds, inversion=True
                 )
             else:
                 path = PathGenerator(
@@ -213,7 +215,7 @@ class TSOptimizer:
                             self.stepwise_reaction_smiles = [reaction_smiles1, reaction_smiles2]
                     # if the search has not been broken off by now, you can proceed to the actual selection of guesses
                     guesses_list = analyzer.select_ts_guesses(
-                        self.reaction_dir, self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent)
+                        self.reaction_dir, self.freq_cut_off, self.charge, self.multiplicity, self.xtb_solvent, self.sn2)
                     if len(guesses_list) > 0:
                         self.barrier_estimate = analyzer.barrier_estimate
                         logger.info(f'Barrier estimate for reaction {path.rxn_id} with reactive complex factor {path.reactive_complex_factor}: {self.barrier_estimate} kcal/mol')

@@ -10,6 +10,7 @@ import subprocess
 import shutil
 import random
 import logging
+import re
 from itertools import product
 
 from typing import Optional
@@ -18,7 +19,7 @@ from autode.smiles.smiles import init_smiles
 from rdkit import RDLogger
 RDLogger.DisableLog("rdApp.*")
 
-from tstools.utils import write_xyz_file_from_ade_atoms, NotConverged
+from tstools.utils import write_xyz_file_from_ade_atoms, NotConverged, compute_angle
 
 ps = Chem.SmilesParserParams()
 ps.removeHs = False
@@ -54,7 +55,7 @@ class PathGenerator:
     STRETCH_FACTOR_UPPER_BOUND = 1.3
 
     def __init__(self, reactant_smiles, product_smiles, rxn_id, path_dir, rp_geometries_dir, 
-                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100, proc=2, add_broken_bonds=False):
+                 solvent=None, reactive_complex_factor=2.0, freq_cut_off=150, charge=0, multiplicity=1, n_conf=100, proc=2, add_broken_bonds=False, inversion=False):
         """
         Initialize a PathGenerator object.
 
@@ -70,6 +71,7 @@ class PathGenerator:
         - charge (int, optional): Molecular charge.
         - multiplicity (int, optional): Molecular multiplicity.
         - n_conf (int, optional): Number of conformers.
+        - inversion(bool, optional): Switch reactants and products to find a transition state
 
         Returns:
         None
@@ -87,7 +89,8 @@ class PathGenerator:
         self.n_conf = n_conf
         self.proc = proc
         self.add_broken_bonds = add_broken_bonds
-
+        self.inversion = inversion
+        
         os.chdir(self.path_dir)
 
         self.reactant_rdkit_mol = Chem.MolFromSmiles(reactant_smiles, ps)
@@ -96,6 +99,8 @@ class PathGenerator:
 
         self.atom_map_dict = {atom.GetAtomMapNum(): atom.GetIdx() for atom in self.reactant_rdkit_mol.GetAtoms()}
         self.atom_idx_dict = {atom.GetIdx(): atom.GetAtomMapNum() for atom in self.reactant_rdkit_mol.GetAtoms()}
+
+        self.linear_reactive_system = self.find_linear_system()
 
         self.owning_dict_rsmiles = get_owning_mol_dict(reactant_smiles)
         self.owning_dict_psmiles = get_owning_mol_dict(product_smiles)
@@ -152,6 +157,7 @@ class PathGenerator:
                     else:
                         path_xyz_files = get_path_xyz_files(atoms, coords, fc, energies, potentials)
                         self.save_rp_geometries(atoms, coords)
+                        self.split_geom()
                         return energies, potentials, path_xyz_files
 
         return None, None, None
@@ -275,7 +281,17 @@ class PathGenerator:
             write_xyz_file_from_ade_atoms(atoms, f'{conformer.name}.xyz')
             stereochemistry_conformer = get_stereochemistry_from_conformer_xyz(f'{conformer.name}.xyz', self.reactant_smiles)
             stereochemistry_conformer = [str(d) for d in stereochemistry_conformer if str(d['position']) in stereo_elements_to_consider]
+            
+            if self.linear_reactive_system and not self.add_broken_bonds:
+                atom_1 = atoms[self.linear_reactive_system[0]]
+                atom_2 = atoms[self.linear_reactive_system[1]]
+                atom_3 = atoms[self.linear_reactive_system[2]]
 
+                angle = compute_angle(atom_1.coord, atom_2.coord, atom_3.coord)
+
+                if not (150 < angle < 210):
+                    continue
+                
             if set(stereochemistry_smiles) == set(stereochemistry_conformer):
                 return conformer.name
 
@@ -316,7 +332,7 @@ class PathGenerator:
             RuntimeError: If an error occurs during the xTB optimization process.
         """
         xtb_input_path = f'{self.stereo_correct_conformer_name}.inp'
-
+        
         with open(xtb_input_path, 'w') as f:
             f.write('$constrain\n')
             f.write(f'    force constant={fc}\n')
@@ -594,6 +610,16 @@ class PathGenerator:
         dist_matrix = self.obtain_dist_matrix(mol, smiles)
         current_distance = dist_matrix[mol_dict[atom_i], mol_dict[atom_j]]
 
+        #if len(self.formed_bonds) > 1:
+
+        #    idx1, idx2 = self.atom_map_dict[atom_i], self.atom_map_dict[atom_j]
+        #    
+        #    atom_1 = self.reactant_rdkit_mol.GetAtomWithIdx(idx1)
+        #    atom_2 = self.reactant_rdkit_mol.GetAtomWithIdx(idx2)
+
+        #    if atom_1.GetSymbol() == "H" or atom_2.GetSymbol() == "H":
+        #        return current_distance + 0.25
+
         return current_distance
 
     def obtain_dist_matrix(self, mol, smiles):
@@ -733,7 +759,103 @@ class PathGenerator:
             return True
         else:
             return False
+    
+    def find_linear_system(self):
+        """
+        Return the index of the 3 atoms system if there is only one formed and broken bond.
+
+        Nuc •••  C ••• LG
+
+        Returns:
+            list: The index of the system
+        """
+        idxs_formed = []
+        idxs_broken = []
+
+        if len(self.formed_bonds) and len(self.broken_bonds):
+            for bond in self.formed_bonds:
+                break
+            atom_i = int(bond[0])
+            atom_j = int(bond[1])
+            idxs_formed.append(self.atom_map_dict[atom_i])
+            idxs_formed.append(self.atom_map_dict[atom_j])
+
+            for bond in self.broken_bonds:
+                break
+            atom_i = int(bond[0])
+            atom_j = int(bond[1])
+            idxs_broken.append(self.atom_map_dict[atom_i])
+            idxs_broken.append(self.atom_map_dict[atom_j])
+
+            common_idx = list(set(idxs_formed).intersection(idxs_broken))
+
+            if len(common_idx) == 0:
+                return None
+
+            final_idx = [x for x in idxs_broken if x != common_idx[0]]
+            initial_idx = [x for x in idxs_formed if x != common_idx[0]]
+
+            with open('linear_system.txt', 'w') as f:
+                f.write(f"{initial_idx[0]} {common_idx[0]} {final_idx[0]}")
+
+            return [initial_idx[0], common_idx[0], final_idx[0]]
+        else:
+            return None
         
+    
+    def get_idxs_reacs_prods(self):
+        """
+        Return a list of list with the indexes of each reactants/products in the reactant/product complex
+
+        Returns:
+            list: 
+        """
+
+        idxs_all = []
+
+        for i, smi in enumerate([self.reactant_smiles, self.product_smiles]):
+            for specie in smi.split('.'):
+                map_numbers = list(map(int, re.findall(r':(\d+)', specie)))
+                idxs = []
+                for number in map_numbers:    
+                    idxs.append(self.atom_map_dict[number])
+                idxs_all.append(idxs)
+        return idxs_all
+    
+
+    def split_geom(self):
+    
+        idxs_all = self.get_idxs_reacs_prods()
+
+        for id, idxs in enumerate(idxs_all):
+            
+            num_reacs = len(self.reactant_smiles.split('.'))
+
+            if id < num_reacs:
+                if self.inversion:
+                    name = 'p'
+                else:
+                    name = 'r'
+                smiles = self.reactant_smiles.split('.')
+                file = os.path.join(self.rp_geometries_dir, 'reactants_geometry.xyz')
+                no_specie = id
+            elif id >= num_reacs:
+                if self.inversion:
+                    name = 'r'
+                else:
+                    name = 'p'
+                smiles = self.product_smiles.split('.')
+                file = os.path.join(self.rp_geometries_dir, 'products_geometry.xyz')
+                no_specie = id - num_reacs
+            
+            with open(file, 'r') as f:
+                lines = f.readlines()
+
+            final_geom_file = os.path.join(self.rp_geometries_dir, f'{name}{no_specie}.xyz')
+            with open(final_geom_file, 'w') as f:
+                f.write(f" {len(idxs)}\n r\"{smiles[no_specie]}\" \n")
+                for idx in idxs:
+                    f.write(lines[idx + 2])
     
 def get_multiplicity(mol):
     """
@@ -1124,8 +1246,10 @@ if __name__ == '__main__':
     #product_smiles = '[N+:1]([B-:2]([H:6])([H:7])[H:12])([B:4]([N:3]([H:5])[H:10])[H:11])([H:8])[H:9]'
     #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
     #product_smiles = '[H:1][C:2]([C:3]([H:5])=[O:6])([H:4])[C:9]([O:8][H:7])([H:10])[H:11]'
-    reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
-    product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
+    #reactant_smiles = '[H:1]/[C:2](=[C:3](/[H:5])[O:6][H:7])[H:4].[O:8]=[C:9]([H:10])[H:11]'
+    #product_smiles = '[H:1]/[C:2](=[C:3](\[O:6][H:7])[C:9]([O:8][H:5])([H:10])[H:11])[H:4]'
+    reactant_smiles = '[C:1]([O:4][H:18])([H:8])([H:9])[H:10].[C:2]([N:3]([H:6])[H:7])(=[O:5])[C:12]([C:11]([H:13])([H:14])[H:15])([H:16])[H:17]'
+    product_smiles = '[C:11]([C:12]([H:16])([H:17])[H:18])([H:13])([H:14])[H:15].[C:1]([O:4][C:2]([N:3]([H:6])[H:7])=[O:5])([H:8])([H:9])[H:10]'
     reaction = PathGenerator(reactant_smiles, product_smiles, 'R1', 
                              '/Users/thijsstuyver/Desktop/reaction_profile_generator/path_test', 
                              '/Users/thijsstuyver/Desktop/reaction_profile_generator/rp_test')
